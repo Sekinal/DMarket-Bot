@@ -9,6 +9,7 @@ import requests
 from nacl.bindings import crypto_sign
 from requests.exceptions import RequestException
 from dotenv import load_dotenv
+from rich import print
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class DMarketAPI:
     def get_current_targets(self) -> Dict[str, Any]:
         return self._make_request(
             "GET",
-            f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}"
+            f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}&BasicFilters.Status=TargetStatusActive"
         )
 
     def delete_target(self, target_id: str):
