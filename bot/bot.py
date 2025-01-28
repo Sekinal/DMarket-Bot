@@ -1,3 +1,4 @@
+# bot/bot.py
 import os
 import json
 import time
