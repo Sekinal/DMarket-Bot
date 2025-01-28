@@ -196,7 +196,8 @@ class BotInstance:
                 for order in market_prices["orders"]:
                     order_attributes = order["attributes"]
                     attributes_match = True
-                    if target_attributes.get("floatPartValue", "any") != order_attributes.get("floatPartValue", "any"):
+                    if (target_attributes.get("floatPartValue", "any") != order_attributes.get("floatPartValue", "any")
+                        and order_attributes.get("floatPartValue", "any") != "any"):
                         attributes_match = False
                     if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
                         attributes_match = False
