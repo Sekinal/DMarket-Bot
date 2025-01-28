@@ -29,7 +29,7 @@ class DMarketConfig:
     api_url: str
     game_id: str
     currency: str = "USD"
-    check_interval: int = 30  # seconds
+    check_interval: int = 10  # seconds
 
 class RateLimiter:
     def __init__(self, requests_per_second: int):
