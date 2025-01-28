@@ -30,7 +30,7 @@ class DMarketConfig:
     api_url: str
     game_id: str
     currency: str = "USD"
-    check_interval: int = 960
+    check_interval: int
 
 class RateLimiter:
     def __init__(self, requests_per_second: int):
@@ -292,7 +292,7 @@ class BotManager:
                             api_url=config_data.get('api_url', "https://api.dmarket.com"),
                             game_id=config_data.get('game_id', "a8db"),
                             currency=config_data.get('currency', "USD"),
-                            check_interval=config_data.get('check_interval', 10)
+                            check_interval=config_data.get('check_interval', 960)
                         )
                         self.bots[instance_id] = BotInstance(instance_id, config)
         except FileNotFoundError:
