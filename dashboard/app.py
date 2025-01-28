@@ -45,5 +45,18 @@ def stop_bot(instance_id):
     success = bot_manager.stop_bot(instance_id)
     return jsonify({'success': success})
 
+@app.route('/api/max-prices', methods=['GET'])
+def get_max_prices():
+    return jsonify({
+        'max_prices': bot_manager.max_prices,
+        'available_items': list(bot_manager.available_items)
+    })
+
+@app.route('/api/max-prices', methods=['POST'])
+def update_max_price():
+    data = request.json
+    bot_manager.update_max_price(data['item_name'], float(data['max_price']))
+    return jsonify({'success': True})
+
 if __name__ == '__main__':
     app.run(debug=True)

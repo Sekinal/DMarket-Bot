@@ -45,10 +45,11 @@ class RateLimiter:
         self.last_request_time = time.time()
 
 class DMarketAPI:
-    def __init__(self, config: DMarketConfig):
+    def __init__(self, config: DMarketConfig, bot_manager=None):
         self.config = config
         self.rate_limiter = RateLimiter(5)  # Conservative rate limit
         self.session = requests.Session()
+        self.bot_manager = bot_manager
 
     def _generate_headers(self, method: str, path: str, body: Dict = None) -> Dict[str, str]:
         nonce = str(round(datetime.now().timestamp()))
@@ -135,8 +136,10 @@ class DMarketAPI:
         )
 
 class BotInstance:
-    def __init__(self, instance_id: str, config: DMarketConfig):
+    def __init__(self, instance_id: str, config: DMarketConfig, bot_manager=None):
         self.instance_id = instance_id
+        self.bot_manager = bot_manager
+        self.api = DMarketAPI(config, bot_manager)
         self.api = DMarketAPI(config)
         self.config = config
         self.console = Console()
@@ -177,6 +180,9 @@ class BotInstance:
                 {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
             )
             
+            if self.bot_manager:
+                self.bot_manager.update_available_items([title])
+                
             if self.first_cycle_complete == True:
                 self.api.delete_target(current_target["TargetID"])
                 
@@ -214,13 +220,18 @@ class BotInstance:
             console.print(relevant_orders)
             highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
             optimal_price = highest_price + 0.01
-
+                
             self.print_market_analysis(title, highest_price, optimal_price, current_price)
 
             if abs(current_price - optimal_price) > 0:
                 if not self.first_cycle_complete:
                     self.console.print("\n[yellow]First cycle - skipping update until next cycle[/yellow]")
                 else:
+                    # Check max price before updating
+                    max_price = self.bot_manager.get_max_price(title) if self.bot_manager else float('inf')
+                    if optimal_price > max_price:
+                        self.console.print(f"\n[red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price:.2f}[/red]")
+                        optimal_price = max_price
                     self.console.print("\n[yellow]Price adjustment needed[/yellow]")
                     self.print_action_result("Deleting old target", f"ID: {current_target['TargetID']}")
                     self.api.delete_target(current_target["TargetID"])
@@ -291,7 +302,34 @@ class BotManager:
     def __init__(self):
         self.bots = {}
         self.config_file = "config/bots_config.json"
+        self.max_prices_file = "config/max_prices.json"
+        self.max_prices = {}
+        self.available_items = set()  # To store unique items from all bots
         self.load_configs()
+        self.load_max_prices()
+
+    def load_max_prices(self):
+        try:
+            with open(self.max_prices_file, 'r') as f:
+                self.max_prices = json.load(f)
+        except FileNotFoundError:
+            self.max_prices = {}
+            self.save_max_prices()
+
+    def save_max_prices(self):
+        os.makedirs('config', exist_ok=True)
+        with open(self.max_prices_file, 'w') as f:
+            json.dump(self.max_prices, f, indent=4)
+
+    def update_max_price(self, item_name: str, max_price: float):
+        self.max_prices[item_name] = max_price
+        self.save_max_prices()
+
+    def get_max_price(self, item_name: str) -> float:
+        return self.max_prices.get(item_name, float('inf'))
+
+    def update_available_items(self, items: list):
+        self.available_items.update(items)
 
     def load_configs(self):
         try:
@@ -330,7 +368,7 @@ class BotManager:
 
     def add_bot(self, instance_id: str, config: DMarketConfig):
         if instance_id not in self.bots:
-            self.bots[instance_id] = BotInstance(instance_id, config)
+            self.bots[instance_id] = BotInstance(instance_id, config, self)
             self.save_configs()
             return True
         return False
