@@ -30,7 +30,7 @@ class DMarketConfig:
     api_url: str
     game_id: str
     currency: str = "USD"
-    check_interval: int = 10  # seconds
+    check_interval: int = 960
 
 class RateLimiter:
     def __init__(self, requests_per_second: int):
@@ -111,6 +111,7 @@ class DMarketAPI:
                 "Title": title
             }]
         }
+        
         if attributes:
             attrs = {}
             for attr in attributes:
@@ -118,11 +119,14 @@ class DMarketAPI:
                     attrs[attr["Name"]] = attr["Value"]
             if attrs:
                 body["Targets"][0]["Attrs"] = attrs
-        return self._make_request(
+        
+        response = self._make_request(
             "POST",
             "/marketplace-api/v1/user-targets/create",
             body
         )
+        
+        return response
 
     def get_market_prices(self, title: str) -> Dict[str, Any]:
         return self._make_request(
@@ -205,7 +209,7 @@ class BotInstance:
 
             self.print_market_analysis(title, highest_price, optimal_price, current_price)
 
-            if abs(current_price - optimal_price) > 0.01:
+            if abs(current_price - optimal_price) > 0:
                 self.console.print("\n[yellow]Price adjustment needed[/yellow]")
                 
                 self.print_action_result("Deleting old target", f"ID: {current_target['TargetID']}")
