@@ -125,7 +125,7 @@ class DMarketBot:
         self.api = DMarketAPI(config)
         self.config = config
 
-    def update_target(self, title: str, current_price: float):
+    def update_target(self, title: str, current_price: float, current_target: Dict):
         try:
             # Get current market prices
             market_prices = self.api.get_market_prices(title)
@@ -133,27 +133,51 @@ class DMarketBot:
                 logger.info(f"No orders found for {title}")
                 return
 
-            # Find highest purchase target
+            # Get target attributes
+            target_attributes = {
+                attr["Name"]: attr["Value"] 
+                for attr in current_target["Attributes"]
+            }
+
+            # Filter orders based on matching attributes
+            relevant_orders = []
+            for order in market_prices["orders"]:
+                order_attributes = order["attributes"]
+                
+                # Check if we need to match specific attributes
+                attributes_match = True
+                        
+                # Check paintSeed
+                if target_attributes.get("paintSeed", "any") != "any":
+                    if order_attributes.get("paintSeed", "any") != target_attributes["paintSeed"]:
+                        attributes_match = False
+                        
+                # Check phase
+                if target_attributes.get("phase", "any") != "any":
+                    if order_attributes.get("phase", "any") != target_attributes["phase"]:
+                        attributes_match = False
+                
+                if attributes_match:
+                    relevant_orders.append(order)
+
+            if not relevant_orders:
+                logger.info(f"No matching orders found for {title} with specific attributes")
+                return
+
+            # Find highest matching price
             highest_price = max(
-                float(order["price"]) 
-                for order in market_prices["orders"]
+                float(order["price"]) / 100  # Convert cents to USD
+                for order in relevant_orders
             )
 
             # If our price isn't highest, update it
             if current_price <= highest_price:
                 new_price = highest_price + 0.01
                 logger.info(f"Updating price for {title} from {current_price} to {new_price}")
-                
-                # Get our current targets
-                current_targets = self.api.get_current_targets()
-                
                 # Delete old target
-                for target in current_targets.get("Items", []):
-                    if target["Title"] == title:
-                        self.api.delete_target(target["TargetID"])
-                
-                # Create new target
-                self.api.create_target(title, "1", new_price)
+                self.api.delete_target(current_target["TargetID"])
+                # Create new target with same attributes
+                self.api.create_target(title, current_target["Amount"], new_price)
 
         except Exception as e:
             logger.error(f"Error updating target: {e}")
