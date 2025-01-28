@@ -25,7 +25,7 @@ def add_bot():
         api_url=data.get('api_url', "https://api.dmarket.com"),
         game_id=data.get('game_id', "a8db"),
         currency=data.get('currency', "USD"),
-        check_interval=int(data.get('check_interval', 10))
+        check_interval=int(data.get('check_interval', 960))
     )
     success = bot_manager.add_bot(data['instance_id'], config)
     return jsonify({'success': success})
