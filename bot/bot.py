@@ -146,7 +146,7 @@ class DMarketBot:
 
             # Get target attributes
             target_attributes = {
-                attr["Name"]: attr["Value"] 
+                attr["Name"]: attr["Value"]
                 for attr in current_target["Attributes"]
             }
 
@@ -154,18 +154,14 @@ class DMarketBot:
             relevant_orders = []
             for order in market_prices["orders"]:
                 order_attributes = order["attributes"]
-                
                 # Check if we need to match specific attributes
                 attributes_match = True
-                        
                 # Check paintSeed
                 if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
                         attributes_match = False
-                        
                 # Check phase
                 if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
                         attributes_match = False
-                
                 if attributes_match:
                     relevant_orders.append(order)
 
@@ -179,20 +175,28 @@ class DMarketBot:
                 for order in relevant_orders
             )
 
-            # If our price isn't highest, update it
-            if current_price <= highest_price:
-                new_price = highest_price + 0.01
-                logger.info(f"Updating price for {title} from {current_price} to {new_price}")
+            # Calculate optimal price
+            optimal_price = highest_price + 0.01
+
+            # If our current price needs adjustment (either too high or too low)
+            if abs(current_price - optimal_price) > 0.01:
+                logger.info(f"Price adjustment needed for {title}")
+                logger.info(f"Current price: {current_price}, Highest competitor: {highest_price}")
+                logger.info(f"Adjusting to optimal price: {optimal_price}")
+
                 # Delete old target
                 self.api.delete_target(current_target["TargetID"])
-                # Create new target with same attributes
+
+                # Create new target with same attributes but optimal price
                 self.api.create_target(
                     title=title,
                     amount=current_target["Amount"],
-                    price=new_price,
+                    price=optimal_price,
                     attributes=current_target["Attributes"]
                 )
-                logger.info(f"Created new target for {title} with price {new_price} and attributes {current_target['Attributes']}")
+                logger.info(f"Created new target for {title} with price {optimal_price} and attributes {current_target['Attributes']}")
+            else:
+                logger.info(f"Price for {title} is already optimal at {current_price}")
 
         except Exception as e:
             logger.error(f"Error updating target: {e}")
