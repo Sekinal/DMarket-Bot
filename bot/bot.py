@@ -85,7 +85,7 @@ class DMarketAPI:
     def get_current_targets(self) -> Dict[str, Any]:
         return self._make_request(
             "GET",
-            f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}&BasicFilters.Status=TargetStatusActive"
+            f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}&BasicFilters.Status=TargetStatusInactive"
         )
 
     def delete_target(self, target_id: str):
@@ -201,19 +201,16 @@ class DMarketBot:
 
     def run(self):
         logger.info("Starting DMarket bot...")
-        
         while True:
             try:
                 current_targets = self.api.get_current_targets()
-                
                 for target in current_targets.get("Items", []):
                     self.update_target(
                         target["Title"],
-                        float(target["Price"]["Amount"])
+                        float(target["Price"]["Amount"]),
+                        target
                     )
-
                 time.sleep(self.config.check_interval)
-
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")
                 time.sleep(self.config.check_interval)
