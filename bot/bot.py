@@ -85,7 +85,7 @@ class DMarketAPI:
     def get_current_targets(self) -> Dict[str, Any]:
         return self._make_request(
             "GET",
-            f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}&BasicFilters.Status=TargetStatusInactive"
+            f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}&BasicFilters.Status=TargetStatusActive"
         )
 
     def delete_target(self, target_id: str):
@@ -159,13 +159,11 @@ class DMarketBot:
                 attributes_match = True
                         
                 # Check paintSeed
-                if target_attributes.get("paintSeed", "any") != "any":
-                    if order_attributes.get("paintSeed", "any") != target_attributes["paintSeed"]:
+                if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
                         attributes_match = False
                         
                 # Check phase
-                if target_attributes.get("phase", "any") != "any":
-                    if order_attributes.get("phase", "any") != target_attributes["phase"]:
+                if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
                         attributes_match = False
                 
                 if attributes_match:
