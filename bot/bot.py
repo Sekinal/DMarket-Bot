@@ -17,6 +17,7 @@ from rich.live import Live
 from rich.layout import Layout
 from rich.text import Text
 from rich import box
+import threading
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -129,11 +130,14 @@ class DMarketAPI:
             f"/marketplace-api/v1/targets-by-title/{self.config.game_id}/{title}"
         )
 
-class DMarketBot:
-    def __init__(self, config: DMarketConfig):
+class BotInstance:
+    def __init__(self, instance_id: str, config: DMarketConfig):
+        self.instance_id = instance_id
         self.api = DMarketAPI(config)
         self.config = config
         self.console = Console()
+        self.running = False
+        self.thread = None
 
     def print_target_info(self, title: str, current_price: float, attributes: Dict):
         panel = Panel(
@@ -223,6 +227,17 @@ class DMarketBot:
         except Exception as e:
             self.console.print(f"[bold red]Error updating target:[/bold red] {str(e)}", style="red")
 
+    def start(self):
+        if not self.running:
+            self.running = True
+            self.thread = threading.Thread(target=self.run)
+            self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+            
     def run(self):
         self.console.print(Panel.fit(
             "[bold green]DMarket Bot Started[/bold green]\n"
@@ -255,13 +270,87 @@ class DMarketBot:
                 self.console.print(f"[bold red]Error in main loop:[/bold red] {str(e)}", style="red")
                 time.sleep(self.config.check_interval)
 
-if __name__ == "__main__":
-    load_dotenv()
-    config = DMarketConfig(
-        public_key=os.getenv("PUBLIC_KEY"),
-        secret_key=os.getenv("SECRET_KEY"),
-        api_url="https://api.dmarket.com",
-        game_id="a8db"  # CS:GO
-    )
-    bot = DMarketBot(config)
-    bot.run()
+class BotManager:
+    def __init__(self):
+        self.bots = {}
+        self.config_file = "config/bots_config.json"
+        self.load_configs()
+
+    def load_configs(self):
+        try:
+            with open(self.config_file, 'r') as f:
+                configs = json.load(f)
+                for instance_id, config_data in configs.items():
+                    if instance_id not in self.bots:
+                        config = DMarketConfig(
+                            public_key=config_data['public_key'],
+                            secret_key=config_data['secret_key'],
+                            api_url=config_data.get('api_url', "https://api.dmarket.com"),
+                            game_id=config_data.get('game_id', "a8db"),
+                            currency=config_data.get('currency', "USD"),
+                            check_interval=config_data.get('check_interval', 10)
+                        )
+                        self.bots[instance_id] = BotInstance(instance_id, config)
+        except FileNotFoundError:
+            logger.warning("No config file found. Creating empty configuration.")
+            self.save_configs()
+
+    def save_configs(self):
+        configs = {
+            instance_id: {
+                'public_key': bot.config.public_key,
+                'secret_key': bot.config.secret_key,
+                'api_url': bot.config.api_url,
+                'game_id': bot.config.game_id,
+                'currency': bot.config.currency,
+                'check_interval': bot.config.check_interval
+            }
+            for instance_id, bot in self.bots.items()
+        }
+        os.makedirs('config', exist_ok=True)
+        with open(self.config_file, 'w') as f:
+            json.dump(configs, f, indent=4)
+
+    def add_bot(self, instance_id: str, config: DMarketConfig):
+        if instance_id not in self.bots:
+            self.bots[instance_id] = BotInstance(instance_id, config)
+            self.save_configs()
+            return True
+        return False
+
+    def remove_bot(self, instance_id: str):
+        if instance_id in self.bots:
+            self.bots[instance_id].stop()
+            del self.bots[instance_id]
+            self.save_configs()
+            return True
+        return False
+
+    def start_bot(self, instance_id: str):
+        if instance_id in self.bots:
+            self.bots[instance_id].start()
+            return True
+        return False
+
+    def stop_bot(self, instance_id: str):
+        if instance_id in self.bots:
+            self.bots[instance_id].stop()
+            return True
+        return False
+
+    def get_bot_status(self, instance_id: str):
+        if instance_id in self.bots:
+            return {
+                'running': self.bots[instance_id].running,
+                'config': vars(self.bots[instance_id].config)
+            }
+        return None
+
+    def get_all_bots(self):
+        return {
+            instance_id: {
+                'running': bot.running,
+                'config': vars(bot.config)
+            }
+            for instance_id, bot in self.bots.items()
+        }
