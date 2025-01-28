@@ -146,7 +146,8 @@ class BotInstance:
         self.console = Console()
         self.running = False
         self.thread = None
-        self.first_cycle_complete = False  # Single flag for first cycle
+        self.first_cycle_complete = False
+        self.shutdown_event = threading.Event()
 
     def print_target_info(self, title: str, current_price: float, attributes: Dict):
         panel = Panel(
@@ -261,8 +262,9 @@ class BotInstance:
 
     def stop(self):
         self.running = False
-        if self.thread:
-            self.thread.join()
+        self.shutdown_event.set()  # Signal immediate shutdown
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1)
             
     def run(self):
         self.console.print(Panel.fit(
@@ -293,11 +295,15 @@ class BotInstance:
                     self.console.print("\n[bold green]First cycle completed - full updates will start from next cycle[/bold green]")
 
                 self.console.print(f"\n[yellow]Waiting {self.config.check_interval} seconds before next update...[/yellow]")
-                time.sleep(self.config.check_interval)
+                self.shutdown_event.wait(timeout=self.config.check_interval)
+                if self.shutdown_event.is_set():
+                    break
 
             except Exception as e:
                 self.console.print(f"[bold red]Error in main loop:[/bold red] {str(e)}", style="red")
-                time.sleep(self.config.check_interval)
+                self.shutdown_event.wait(timeout=self.config.check_interval)
+                if self.shutdown_event.is_set():
+                    break
 
 class BotManager:
     def __init__(self):
@@ -376,10 +382,14 @@ class BotManager:
 
     def remove_bot(self, instance_id: str):
         if instance_id in self.bots:
-            self.bots[instance_id].stop()
-            del self.bots[instance_id]
-            self.save_configs()
-            return True
+            try:
+                self.bots[instance_id].stop()
+                del self.bots[instance_id]
+                self.save_configs()
+                return True
+            except Exception as e:
+                logger.error(f"Error removing bot {instance_id}: {e}")
+                return False
         return False
 
     def start_bot(self, instance_id: str):
