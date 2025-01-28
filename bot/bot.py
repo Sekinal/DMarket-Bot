@@ -30,7 +30,7 @@ class DMarketConfig:
     api_url: str
     game_id: str
     currency: str = "USD"
-    check_interval: int
+    check_interval: int = 960
 
 class RateLimiter:
     def __init__(self, requests_per_second: int):
@@ -142,6 +142,7 @@ class BotInstance:
         self.console = Console()
         self.running = False
         self.thread = None
+        self.first_cycle_complete = False  # Single flag for first cycle
 
     def print_target_info(self, title: str, current_price: float, attributes: Dict):
         panel = Panel(
@@ -168,68 +169,69 @@ class BotInstance:
     def print_action_result(self, action: str, details: str):
         self.console.print(f"[bold blue]{action}:[/bold blue] [green]{details}[/green]")
 
-    def update_target(self, title: str, current_price: float, current_target: Dict):
-        try:
-            self.print_target_info(
-                title, 
-                current_price, 
-                {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
-            )
-
-            self.console.print("[yellow]Fetching market prices...[/yellow]")
-            market_prices = self.api.get_market_prices(title)
-            
-            if not market_prices.get("orders"):
-                self.console.print(f"[red]No orders found for {title}[/red]")
-                return
-
-            relevant_orders = []
-            target_attributes = {
-                attr["Name"]: attr["Value"]
-                for attr in current_target["Attributes"]
-            }
-
-            with self.console.status("[bold green]Analyzing orders...") as status:
-                for order in market_prices["orders"]:
-                    order_attributes = order["attributes"]
-                    attributes_match = True
-                    if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
-                        attributes_match = False
-                    if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
-                        attributes_match = False
-                    if attributes_match:
-                        relevant_orders.append(order)
-
-            if not relevant_orders:
-                self.console.print(f"[red]No matching orders found for {title} with specific attributes[/red]")
-                return
-
-            highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
-            optimal_price = highest_price + 0.01
-
-            self.print_market_analysis(title, highest_price, optimal_price, current_price)
-
-            if abs(current_price - optimal_price) > 0:
-                self.console.print("\n[yellow]Price adjustment needed[/yellow]")
-                
-                self.print_action_result("Deleting old target", f"ID: {current_target['TargetID']}")
-                self.api.delete_target(current_target["TargetID"])
-
-                self.print_action_result(
-                    "Creating new target",
-                    f"Price: ${optimal_price:.2f}, Attributes: {current_target['Attributes']}"
+        def update_target(self, title: str, current_price: float, current_target: Dict):
+            try:
+                self.print_target_info(
+                    title,
+                    current_price,
+                    {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
                 )
-                self.api.create_target(
-                    title=title,
-                    amount=current_target["Amount"],
-                    price=optimal_price,
-                    attributes=current_target["Attributes"]
-                )
-            else:
-                self.console.print("\n[green]Price is already optimal[/green]")
-
-        except Exception as e:
-            self.console.print(f"[bold red]Error updating target:[/bold red] {str(e)}", style="red")
+    
+                self.console.print("[yellow]Fetching market prices...[/yellow]")
+                market_prices = self.api.get_market_prices(title)
+                if not market_prices.get("orders"):
+                    self.console.print(f"[red]No orders found for {title}[/red]")
+                    return
+    
+                relevant_orders = []
+                target_attributes = {
+                    attr["Name"]: attr["Value"]
+                    for attr in current_target["Attributes"]
+                }
+    
+                with self.console.status("[bold green]Analyzing orders...") as status:
+                    for order in market_prices["orders"]:
+                        order_attributes = order["attributes"]
+                        attributes_match = True
+                        if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
+                            attributes_match = False
+                        if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
+                            attributes_match = False
+                        if attributes_match:
+                            relevant_orders.append(order)
+    
+                if not relevant_orders:
+                    self.console.print(f"[red]No matching orders found for {title} with specific attributes[/red]")
+                    return
+    
+                highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
+                optimal_price = highest_price + 0.01
+    
+                self.print_market_analysis(title, highest_price, optimal_price, current_price)
+    
+                if abs(current_price - optimal_price) > 0:
+                    if not self.first_cycle_complete:
+                        self.console.print("\n[yellow]First cycle - skipping update until next cycle[/yellow]")
+                    else:
+                        self.console.print("\n[yellow]Price adjustment needed[/yellow]")
+                        self.print_action_result("Deleting old target", f"ID: {current_target['TargetID']}")
+                        self.api.delete_target(current_target["TargetID"])
+    
+                        self.print_action_result(
+                            "Creating new target",
+                            f"Price: ${optimal_price:.2f}, Attributes: {current_target['Attributes']}"
+                        )
+                        self.api.create_target(
+                            title=title,
+                            amount=current_target["Amount"],
+                            price=optimal_price,
+                            attributes=current_target["Attributes"]
+                        )
+                else:
+                    self.console.print("\n[green]Price is already optimal[/green]")
+    
+            except Exception as e:
+                self.console.print(f"[bold red]Error updating target:[/bold red] {str(e)}", style="red")
 
     def start(self):
         if not self.running:
@@ -252,11 +254,10 @@ class BotInstance:
             border_style="blue"
         ))
 
-        while True:
+        while self.running:
             try:
                 with self.console.status("[bold green]Fetching current targets...") as status:
                     current_targets = self.api.get_current_targets()
-                
                 self.console.print(f"\n[bold]Found {len(current_targets.get('Items', []))} active targets[/bold]")
                 
                 for target in current_targets.get("Items", []):
@@ -266,6 +267,10 @@ class BotInstance:
                         float(target["Price"]["Amount"]),
                         target
                     )
+
+                if not self.first_cycle_complete:
+                    self.first_cycle_complete = True
+                    self.console.print("\n[bold green]First cycle completed - full updates will start from next cycle[/bold green]")
 
                 self.console.print(f"\n[yellow]Waiting {self.config.check_interval} seconds before next update...[/yellow]")
                 time.sleep(self.config.check_interval)
