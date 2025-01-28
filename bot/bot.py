@@ -30,7 +30,7 @@ class DMarketConfig:
     api_url: str
     game_id: str
     currency: str = "USD"
-    check_interval: int = 960
+    check_interval: int = 30
 
 class RateLimiter:
     def __init__(self, requests_per_second: int):
@@ -176,9 +176,13 @@ class BotInstance:
                 current_price,
                 {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
             )
-
+            
+            if self.first_cycle_complete == True:
+                self.api.delete_target(current_target["TargetID"])
+                
             self.console.print("[yellow]Fetching market prices...[/yellow]")
             market_prices = self.api.get_market_prices(title)
+            
             if not market_prices.get("orders"):
                 self.console.print(f"[red]No orders found for {title}[/red]")
                 return
@@ -188,11 +192,12 @@ class BotInstance:
                 attr["Name"]: attr["Value"]
                 for attr in current_target["Attributes"]
             }
-
             with self.console.status("[bold green]Analyzing orders...") as status:
                 for order in market_prices["orders"]:
                     order_attributes = order["attributes"]
                     attributes_match = True
+                    if target_attributes.get("floatPartValue", "any") != order_attributes.get("floatPartValue", "any"):
+                        attributes_match = False
                     if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
                         attributes_match = False
                     if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
@@ -204,6 +209,8 @@ class BotInstance:
                 self.console.print(f"[red]No matching orders found for {title} with specific attributes[/red]")
                 return
 
+            console.print("Found these relevant orders:")
+            console.print(relevant_orders)
             highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
             optimal_price = highest_price + 0.01
 
@@ -297,7 +304,7 @@ class BotManager:
                             api_url=config_data.get('api_url', "https://api.dmarket.com"),
                             game_id=config_data.get('game_id', "a8db"),
                             currency=config_data.get('currency', "USD"),
-                            check_interval=config_data.get('check_interval', 960)
+                            check_interval=config_data.get('check_interval', 30)
                         )
                         self.bots[instance_id] = BotInstance(instance_id, config)
         except FileNotFoundError:
