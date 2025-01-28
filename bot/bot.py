@@ -96,7 +96,7 @@ class DMarketAPI:
             body
         )
 
-    def create_target(self, title: str, amount: str, price: float):
+    def create_target(self, title: str, amount: str, price: float, attributes: Dict = None):
         body = {
             "GameID": self.config.game_id,
             "Targets": [{
@@ -108,6 +108,17 @@ class DMarketAPI:
                 "Title": title
             }]
         }
+
+        # Add attributes if provided
+        if attributes:
+            attrs = {}
+            for attr in attributes:
+                if attr["Name"] in ["paintSeed", "phase", "floatPartValue"]:
+                    attrs[attr["Name"]] = attr["Value"]
+            
+            if attrs:
+                body["Targets"][0]["Attrs"] = attrs
+
         return self._make_request(
             "POST",
             "/marketplace-api/v1/user-targets/create",
@@ -177,7 +188,13 @@ class DMarketBot:
                 # Delete old target
                 self.api.delete_target(current_target["TargetID"])
                 # Create new target with same attributes
-                self.api.create_target(title, current_target["Amount"], new_price)
+                self.api.create_target(
+                    title=title,
+                    amount=current_target["Amount"],
+                    price=new_price,
+                    attributes=current_target["Attributes"]
+                )
+                logger.info(f"Created new target for {title} with price {new_price} and attributes {current_target['Attributes']}")
 
         except Exception as e:
             logger.error(f"Error updating target: {e}")
