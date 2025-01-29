@@ -25,7 +25,7 @@ def add_bot():
         api_url=data.get('api_url', "https://api.dmarket.com"),
         game_id=data.get('game_id', "a8db"),
         currency=data.get('currency', "USD"),
-        check_interval=int(data.get('check_interval', 30))
+        check_interval=int(data.get('check_interval', 960))
     )
     success = bot_manager.add_bot(data['instance_id'], config)
     return jsonify({'success': success})
@@ -55,7 +55,13 @@ def get_max_prices():
 @app.route('/api/max-prices', methods=['POST'])
 def update_max_price():
     data = request.json
-    bot_manager.update_max_price(data['item_name'], float(data['max_price']))
+    bot_manager.update_max_price(
+        item_name=data['item_name'],
+        phase=data.get('phase', ''),
+        float_val=data.get('float', ''),
+        seed=data.get('seed', ''),
+        max_price=float(data['max_price'])
+    )
     return jsonify({'success': True})
 
 if __name__ == '__main__':

@@ -31,7 +31,7 @@ class DMarketConfig:
     api_url: str
     game_id: str
     currency: str = "USD"
-    check_interval: int = 30
+    check_interval: int = 960
 
 class RateLimiter:
     def __init__(self, requests_per_second: int):
@@ -182,8 +182,17 @@ class BotInstance:
                 {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
             )
             
+            target_attrs = {a["Name"]: a["Value"] for a in current_target["Attributes"]}
+            phase = target_attrs.get("phase", "")
+            float_val = target_attrs.get("floatPartValue", "")
+            seed = target_attrs.get("paintSeed", "")
+            
             if self.bot_manager:
-                self.bot_manager.update_available_items([title])
+                max_price = self.bot_manager.get_max_price(
+                    title, phase, float_val, seed
+                )
+            else:
+                max_price = float('inf')
                 
             if self.first_cycle_complete == True:
                 self.api.delete_target(current_target["TargetID"])
@@ -280,6 +289,12 @@ class BotInstance:
             try:
                 with self.console.status("[bold green]Fetching current targets...") as status:
                     current_targets = self.api.get_current_targets()
+                
+                # Extract and report items to bot manager
+                items = [target["Title"] for target in current_targets.get("Items", [])]
+                if self.bot_manager:
+                    self.bot_manager.update_available_items(items)
+                
                 self.console.print(f"\n[bold]Found {len(current_targets.get('Items', []))} active targets[/bold]")
                 
                 for target in current_targets.get("Items", []):
@@ -320,7 +335,7 @@ class BotManager:
             with open(self.max_prices_file, 'r') as f:
                 self.max_prices = json.load(f)
         except FileNotFoundError:
-            self.max_prices = {}
+            self.max_prices = []
             self.save_max_prices()
 
     def save_max_prices(self):
@@ -328,15 +343,49 @@ class BotManager:
         with open(self.max_prices_file, 'w') as f:
             json.dump(self.max_prices, f, indent=4)
 
-    def update_max_price(self, item_name: str, max_price: float):
-        self.max_prices[item_name] = max_price
+    def update_max_price(self, item_name: str, phase: str, float_val: str, seed: str, max_price: float):
+        # Remove existing entry if exists
+        self.max_prices = [entry for entry in self.max_prices if not (
+            entry['item'] == item_name and
+            entry.get('phase', '') == phase and
+            entry.get('float', '') == float_val and
+            entry.get('seed', '') == seed
+        )]
+        # Add new entry
+        self.max_prices.append({
+            'item': item_name,
+            'phase': phase,
+            'float': float_val,
+            'seed': seed,
+            'price': max_price
+        })
         self.save_max_prices()
 
-    def get_max_price(self, item_name: str) -> float:
-        return self.max_prices.get(item_name, float('inf'))
+    def get_max_price(self, item_name: str, phase: str, float_val: str, seed: str) -> float:
+        matching = []
+        for entry in self.max_prices:
+            if entry['item'] != item_name:
+                continue
+            match = True
+            if entry.get('phase', '') and entry['phase'] != phase:
+                match = False
+            if entry.get('float', '') and entry['float'] != float_val:
+                match = False
+            if entry.get('seed', '') and entry['seed'] != seed:
+                match = False
+            if match:
+                matching.append(entry)
+        
+        if not matching:
+            return float('inf')
+        
+        # Find most specific entry (most attributes specified)
+        best_entry = max(matching, key=lambda x: sum(1 for k in ['phase', 'float', 'seed'] if x.get(k, '')))
+        return best_entry['price']
 
     def update_available_items(self, items: list):
-        self.available_items.update(items)
+        new_items = set(items) - self.available_items
+        self.available_items.update(new_items)
 
     def load_configs(self):
         try:
@@ -350,7 +399,7 @@ class BotManager:
                             api_url=config_data.get('api_url', "https://api.dmarket.com"),
                             game_id=config_data.get('game_id', "a8db"),
                             currency=config_data.get('currency', "USD"),
-                            check_interval=config_data.get('check_interval', 30)
+                            check_interval=config_data.get('check_interval', 960)
                         )
                         self.bots[instance_id] = BotInstance(instance_id, config)
         except FileNotFoundError:
