@@ -141,7 +141,6 @@ class BotInstance:
         self.instance_id = instance_id
         self.bot_manager = bot_manager
         self.api = DMarketAPI(config, bot_manager)
-        self.api = DMarketAPI(config)
         self.config = config
         self.console = Console()
         self.running = False
@@ -271,7 +270,8 @@ class BotInstance:
 
     def stop(self):
         self.running = False
-        self.shutdown_event.set()  # Signal immediate shutdown
+        self.first_cycle_complete = False
+        self.shutdown_event.set()
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1)
             
@@ -326,7 +326,7 @@ class BotManager:
         self.config_file = "config/bots_config.json"
         self.max_prices_file = "config/max_prices.json"
         self.max_prices = {}
-        self.available_items = set()  # To store unique items from all bots
+        self.available_items = set()
         self.load_configs()
         self.load_max_prices()
 
@@ -384,8 +384,7 @@ class BotManager:
         return best_entry['price']
 
     def update_available_items(self, items: list):
-        new_items = set(items) - self.available_items
-        self.available_items.update(new_items)
+        self.available_items = set(items)
 
     def load_configs(self):
         try:
@@ -401,7 +400,7 @@ class BotManager:
                             currency=config_data.get('currency', "USD"),
                             check_interval=config_data.get('check_interval', 960)
                         )
-                        self.bots[instance_id] = BotInstance(instance_id, config)
+                        self.bots[instance_id] = BotInstance(instance_id, config, self)
         except FileNotFoundError:
             logger.warning("No config file found. Creating empty configuration.")
             self.save_configs()

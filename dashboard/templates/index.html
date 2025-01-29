@@ -391,7 +391,27 @@
                     itemSelect.append($('<option>', { value: item, text: item }));
                 });
             });
+
+            updateItemSelect();
+            setInterval(updateItemSelect, 5000);
         });
+    
+        function updateItemSelect() {
+            $.get('/api/max-prices', function(data) {
+                const itemSelect = $('#itemSelect');
+                const currentValue = itemSelect.val(); // Preserve current selection
+                itemSelect.empty().append('<option value="">Select Item</option>');
+                if (data.available_items && data.available_items.length > 0) {
+                    data.available_items.sort().forEach(item => {
+                        itemSelect.append($('<option>', {
+                            value: item,
+                            text: item,
+                            selected: item === currentValue
+                        }));
+                    });
+                }
+            });
+        }
     </script>
 </body>
 </html>
