@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  dmarket-bot:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+      - ./.env:/app/.env
+    restart: unless-stopped
