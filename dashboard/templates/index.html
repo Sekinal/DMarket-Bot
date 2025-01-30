@@ -28,7 +28,20 @@
             margin-bottom: 30px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
+        
+        .dashboard-header .btn-light {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+        }
 
+        .dashboard-header .btn-light:hover {
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
+        }
         .card {
             border: none;
             border-radius: 15px;
@@ -126,7 +139,12 @@
 <body>
     <div class="container">
         <div class="dashboard-header">
-            <h1><i class="fas fa-robot me-2"></i>DMarket Bot Dashboard</h1>
+            <div class="d-flex justify-content-between align-items-center">
+                <h1><i class="fas fa-robot me-2"></i>DMarket Bot Dashboard</h1>
+                <button onclick="window.location.href='/logout'" class="btn btn-light">
+                    <i class="fas fa-sign-out-alt me-2"></i>Logout
+                </button>
+            </div>
         </div>
 
         <div class="row">
