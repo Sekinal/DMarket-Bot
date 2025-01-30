@@ -1,22 +1,58 @@
 # dashboard/app.py
-from flask import Flask, render_template, request, jsonify
-import sys
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from functools import wraps
 import os
+from dotenv import load_dotenv
+import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bot.bot import BotManager, DMarketConfig
 
+# Load environment variables
+load_dotenv()
+
 app = Flask(__name__)
+app.secret_key = os.getenv('SECRET_KEY')
 bot_manager = BotManager()
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if (username == os.getenv('DASHBOARD_USER') and 
+            password == os.getenv('DASHBOARD_PASSWORD')):
+            session['logged_in'] = True
+            return redirect(url_for('index'))
+        return render_template('login.html', error="Invalid credentials")
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html', bots=bot_manager.get_all_bots())
 
 @app.route('/api/bots', methods=['GET'])
+@login_required
 def get_bots():
     return jsonify(bot_manager.get_all_bots())
 
 @app.route('/api/bots', methods=['POST'])
+@login_required
 def add_bot():
     data = request.json
     config = DMarketConfig(
@@ -31,21 +67,25 @@ def add_bot():
     return jsonify({'success': success})
 
 @app.route('/api/bots/<instance_id>', methods=['DELETE'])
+@login_required
 def remove_bot(instance_id):
     success = bot_manager.remove_bot(instance_id)
     return jsonify({'success': success})
 
 @app.route('/api/bots/<instance_id>/start', methods=['POST'])
+@login_required
 def start_bot(instance_id):
     success = bot_manager.start_bot(instance_id)
     return jsonify({'success': success})
 
 @app.route('/api/bots/<instance_id>/stop', methods=['POST'])
+@login_required
 def stop_bot(instance_id):
     success = bot_manager.stop_bot(instance_id)
     return jsonify({'success': success})
 
 @app.route('/api/max-prices', methods=['GET'])
+@login_required
 def get_max_prices():
     return jsonify({
         'max_prices': bot_manager.max_prices,
@@ -53,6 +93,7 @@ def get_max_prices():
     })
 
 @app.route('/api/max-prices', methods=['POST'])
+@login_required
 def update_max_price():
     data = request.json
     bot_manager.update_max_price(
