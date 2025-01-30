@@ -329,7 +329,17 @@ class BotManager:
         self.available_items = set()
         self.load_configs()
         self.load_max_prices()
-
+        self.load_existing_items()
+        
+    def load_existing_items(self):
+        try:
+            with open('config/max_prices.json', 'r') as f:
+                data = json.load(f)
+                for price_entry in data:
+                    self.available_items.add(price_entry['item'])
+        except FileNotFoundError:
+            pass
+        
     def load_max_prices(self):
         try:
             with open(self.max_prices_file, 'r') as f:
