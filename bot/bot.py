@@ -238,7 +238,7 @@ class BotInstance:
                     self.console.print("\n[yellow]First cycle - skipping update until next cycle[/yellow]")
                 else:
                     # Check max price before updating
-                    max_price = self.bot_manager.get_max_price(title) if self.bot_manager else float('inf')
+                    max_price = self.bot_manager.get_max_price(title, phase, float_val, seed) if self.bot_manager else float('inf')
                     if optimal_price > max_price:
                         self.console.print(f"\n[red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price:.2f}[/red]")
                         optimal_price = max_price
