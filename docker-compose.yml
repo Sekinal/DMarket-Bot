@@ -7,4 +7,8 @@ services:
     volumes:
       - ./config:/app/config
       - ./.env:/app/.env
+    environment:
+      - FLASK_APP=dashboard/app.py
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
     restart: unless-stopped
