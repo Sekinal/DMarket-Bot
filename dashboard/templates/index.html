@@ -444,18 +444,27 @@
         function updateItemSelect() {
             $.get('/api/max-prices', function(data) {
                 const itemSelect = $('#itemSelect');
-                const currentValue = itemSelect.val();
+                const floatSelect = $('#floatSelect');
+                const currentItemValue = itemSelect.val();
+                const currentFloatValue = floatSelect.val();
+
                 itemSelect.empty().append('<option value="">Select Item</option>');
                 if (data.available_items && data.available_items.length > 0) {
                     data.available_items.sort().forEach(item => {
                         itemSelect.append($('<option>', {
                             value: item,
                             text: item,
-                            selected: item === currentValue
+                            selected: item === currentItemValue
                         }));
                     });
                 }
-                updateFloatSelect(currentValue);
+
+                // Only update float options if there was a previously selected item
+                if (currentItemValue) {
+                    updateFloatSelect(currentItemValue);
+                    // Restore the previously selected float value
+                    floatSelect.val(currentFloatValue);
+                }
             });
         }
 
