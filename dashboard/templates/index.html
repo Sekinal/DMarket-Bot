@@ -95,6 +95,28 @@
             padding: 10px;
         }
 
+        .max-price-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .max-price-item .btn-group {
+            gap: 5px;
+        }
+
+        .max-price-item .btn {
+            padding: 4px 8px;
+        }
+
+        .swal2-input {
+            margin: 10px auto !important;
+        }
         .bot-card {
             background: white;
             border-radius: 15px;
@@ -437,17 +459,139 @@
             });
         }
 
-        function updateFloatSelect(itemName) {
-            const floatSelect = $('#floatSelect');
-            floatSelect.empty().append('<option value="">Any Float</option>');
-            
-            // Default - hide all float options
-            floatSelect.find('option').hide();
-            
-            if (!itemName) return;
+            // Delete max price
+            $(document).on('click', '.delete-max-price', function() {
+                const index = $(this).data('index');
+                Swal.fire({
+                    title: 'Are you sure?',
+                    text: "You won't be able to revert this!",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#3085d6',
+                    cancelButtonColor: '#d33',
+                    confirmButtonText: 'Yes, delete it!'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        $.ajax({
+                            url: `/api/max-prices/${index}`,
+                            method: 'DELETE',
+                            success: function() {
+                                updateMaxPrices();
+                                Swal.fire('Deleted!', 'Max price has been deleted.', 'success');
+                            }
+                        });
+                    }
+                });
+            });
 
-            // Determine wear type from item name
+            // Edit max price
+            $(document).on('click', '.edit-max-price', function() {
+                const btn = $(this);
+                const index = btn.data('index');
+                const item = btn.data('item');
+                const phase = btn.data('phase');
+                const float = btn.data('float');
+                const seed = btn.data('seed');
+                const price = btn.data('price');
+
+                // Create float options based on item wear
+                const floatOptions = generateFloatOptionsForItem(item);
+
+                Swal.fire({
+                    title: 'Edit Max Price',
+                    html: `
+                        <select id="swal-item" class="swal2-input">
+                            ${$('#itemSelect').html()}
+                        </select>
+                        <select id="swal-phase" class="swal2-input">
+                            ${$('#phaseSelect').html()}
+                        </select>
+                        <select id="swal-float" class="swal2-input">
+                            <option value="">Any Float</option>
+                            ${floatOptions}
+                        </select>
+                        <input id="swal-seed" class="swal2-input" placeholder="Paint Seed" value="${seed}">
+                        <input id="swal-price" class="swal2-input" type="number" step="0.01" placeholder="Max Price" value="${price}">
+                    `,
+                    focusConfirm: false,
+                    didOpen: () => {
+                        // Set initial values
+                        $('#swal-item').val(item);
+                        $('#swal-phase').val(phase);
+                        $('#swal-float').val(float);
+
+                        // Add change handler for item selection
+                        $('#swal-item').on('change', function() {
+                            const selectedItem = $(this).val();
+                            const newFloatOptions = generateFloatOptionsForItem(selectedItem);
+                            $('#swal-float').html(`<option value="">Any Float</option>${newFloatOptions}`);
+                        });
+                    },
+                    preConfirm: () => {
+                        return {
+                            item_name: $('#swal-item').val(),
+                            phase: $('#swal-phase').val(),
+                            float: $('#swal-float').val(),
+                            seed: $('#swal-seed').val(),
+                            max_price: $('#swal-price').val()
+                        }
+                    }
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        $.ajax({
+                            url: `/api/max-prices/${index}`,
+                            method: 'PUT',
+                            contentType: 'application/json',
+                            data: JSON.stringify(result.value),
+                            success: function() {
+                                updateMaxPrices();
+                                Swal.fire('Updated!', 'Max price has been updated.', 'success');
+                            }
+                        });
+                    }
+                });
+            });
+        
+        function updateMaxPrices() {
+            $.get('/api/max-prices', function(data) {
+                const maxPricesList = $('#maxPricesList');
+                maxPricesList.empty();
+                data.max_prices.forEach((entry, index) => {
+                    const attrs = [];
+                    if (entry.phase) attrs.push(`Phase: ${entry.phase}`);
+                    if (entry.float) attrs.push(`Float: ${entry.float}`);
+                    if (entry.seed) attrs.push(`Seed: ${entry.seed}`);
+                    maxPricesList.append(`
+                        <div class="max-price-item" data-index="${index}">
+                            <div>
+                                <div class="fw-bold">${entry.item}</div>
+                                <div class="text-muted">${attrs.join(' | ') || 'Any attributes'}</div>
+                                <div class="text-success">$${entry.price.toFixed(2)}</div>
+                            </div>
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-primary edit-max-price" 
+                                        data-index="${index}"
+                                        data-item="${entry.item}"
+                                        data-phase="${entry.phase}"
+                                        data-float="${entry.float}"
+                                        data-seed="${entry.seed}"
+                                        data-price="${entry.price}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger delete-max-price" 
+                                        data-index="${index}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `);
+                });
+            });
+        }
+
+        function generateFloatOptionsForItem(itemName) {
             let allowedFloats = [];
+            
             if (itemName.includes('Factory New')) {
                 allowedFloats = [
                     ['FN-0', 'FN-0 (0.00-0.01)'],
@@ -492,13 +636,18 @@
                 ];
             }
 
-            // Add allowed float options
-            allowedFloats.forEach(([value, text]) => {
-                floatSelect.append($('<option>', {
-                    value: value,
-                    text: text
-                }));
-            });
+            return allowedFloats.map(([value, text]) => 
+                `<option value="${value}">${text}</option>`
+            ).join('');
+        }
+
+        function updateFloatSelect(itemName) {
+            const floatSelect = $('#floatSelect');
+            floatSelect.empty().append('<option value="">Any Float</option>');
+            if (!itemName) return;
+
+            const floatOptions = generateFloatOptionsForItem(itemName);
+            floatSelect.append(floatOptions);
         }
     </script>
 </body>

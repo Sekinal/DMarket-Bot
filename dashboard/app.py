@@ -105,5 +105,32 @@ def update_max_price():
     )
     return jsonify({'success': True})
 
+@app.route('/api/max-prices/<int:index>', methods=['DELETE'])
+@login_required
+def delete_max_price(index):
+    try:
+        bot_manager.max_prices.pop(index)
+        bot_manager.save_max_prices()
+        return jsonify({'success': True})
+    except IndexError:
+        return jsonify({'success': False, 'error': 'Index not found'}), 404
+
+@app.route('/api/max-prices/<int:index>', methods=['PUT'])
+@login_required
+def modify_max_price(index):
+    try:
+        data = request.json
+        bot_manager.max_prices[index] = {
+            'item': data['item_name'],
+            'phase': data.get('phase', ''),
+            'float': data.get('float', ''),
+            'seed': data.get('seed', ''),
+            'price': float(data['max_price'])
+        }
+        bot_manager.save_max_prices()
+        return jsonify({'success': True})
+    except IndexError:
+        return jsonify({'success': False, 'error': 'Index not found'}), 404
+
 if __name__ == '__main__':
     app.run(debug=True)
