@@ -133,4 +133,4 @@ def modify_max_price(index):
         return jsonify({'success': False, 'error': 'Index not found'}), 404
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
