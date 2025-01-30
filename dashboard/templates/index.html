@@ -412,12 +412,17 @@
 
             updateItemSelect();
             setInterval(updateItemSelect, 5000);
+
+            $('#itemSelect').change(function() {
+                const selectedItem = $(this).val();
+                updateFloatSelect(selectedItem);
+            });
         });
     
         function updateItemSelect() {
             $.get('/api/max-prices', function(data) {
                 const itemSelect = $('#itemSelect');
-                const currentValue = itemSelect.val(); // Preserve current selection
+                const currentValue = itemSelect.val();
                 itemSelect.empty().append('<option value="">Select Item</option>');
                 if (data.available_items && data.available_items.length > 0) {
                     data.available_items.sort().forEach(item => {
@@ -428,6 +433,71 @@
                         }));
                     });
                 }
+                updateFloatSelect(currentValue);
+            });
+        }
+
+        function updateFloatSelect(itemName) {
+            const floatSelect = $('#floatSelect');
+            floatSelect.empty().append('<option value="">Any Float</option>');
+            
+            // Default - hide all float options
+            floatSelect.find('option').hide();
+            
+            if (!itemName) return;
+
+            // Determine wear type from item name
+            let allowedFloats = [];
+            if (itemName.includes('Factory New')) {
+                allowedFloats = [
+                    ['FN-0', 'FN-0 (0.00-0.01)'],
+                    ['FN-1', 'FN-1 (0.01-0.02)'],
+                    ['FN-2', 'FN-2 (0.02-0.03)'],
+                    ['FN-3', 'FN-3 (0.03-0.04)'],
+                    ['FN-4', 'FN-4 (0.04-0.05)'],
+                    ['FN-5', 'FN-5 (0.05-0.06)'],
+                    ['FN-6', 'FN-6 (0.06-0.07)']
+                ];
+            } else if (itemName.includes('Minimal Wear')) {
+                allowedFloats = [
+                    ['MW-0', 'MW-0 (0.07-0.08)'],
+                    ['MW-1', 'MW-1 (0.08-0.09)'],
+                    ['MW-2', 'MW-2 (0.09-0.10)'],
+                    ['MW-3', 'MW-3 (0.10-0.11)'],
+                    ['MW-4', 'MW-4 (0.11-0.15)']
+                ];
+            } else if (itemName.includes('Field-Tested')) {
+                allowedFloats = [
+                    ['FT-0', 'FT-0 (0.15-0.18)'],
+                    ['FT-1', 'FT-1 (0.18-0.21)'],
+                    ['FT-2', 'FT-2 (0.21-0.24)'],
+                    ['FT-3', 'FT-3 (0.24-0.27)'],
+                    ['FT-4', 'FT-4 (0.27-0.38)']
+                ];
+            } else if (itemName.includes('Well-Worn')) {
+                allowedFloats = [
+                    ['WW-0', 'WW-0 (0.38-0.39)'],
+                    ['WW-1', 'WW-1 (0.39-0.40)'],
+                    ['WW-2', 'WW-2 (0.40-0.41)'],
+                    ['WW-3', 'WW-3 (0.41-0.42)'],
+                    ['WW-4', 'WW-4 (0.42-0.45)']
+                ];
+            } else if (itemName.includes('Battle-Scarred')) {
+                allowedFloats = [
+                    ['BS-0', 'BS-0 (0.45-0.50)'],
+                    ['BS-1', 'BS-1 (0.50-0.63)'],
+                    ['BS-2', 'BS-2 (0.63-0.76)'],
+                    ['BS-3', 'BS-3 (0.76-0.80)'],
+                    ['BS-4', 'BS-4 (0.80-1.00)']
+                ];
+            }
+
+            // Add allowed float options
+            allowedFloats.forEach(([value, text]) => {
+                floatSelect.append($('<option>', {
+                    value: value,
+                    text: text
+                }));
             });
         }
     </script>
