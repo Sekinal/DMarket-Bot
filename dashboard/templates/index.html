@@ -156,6 +156,21 @@
                 margin-bottom: 20px;
             }
         }
+
+        footer {
+            padding: 20px 0;
+            font-size: 0.9em;
+        }
+
+        footer hr {
+            margin: 10px auto 20px;
+            width: 80%;
+            opacity: 0.2;
+        }
+
+        footer small {
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -284,6 +299,14 @@
         </div>
     </div>
 
+    <div class="row mt-4">
+        <div class="col-12">
+            <footer class="text-center text-muted">
+                <hr>
+                <small>DMarket Bot Dashboard v0.0.1</small>
+            </footer>
+        </div>
+    </div>
     <script>
         function updateBotsList() {
             $.get('/api/bots', function(data) {
