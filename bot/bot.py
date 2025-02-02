@@ -9,16 +9,13 @@ from dataclasses import dataclass
 import requests
 from nacl.bindings import crypto_sign
 from requests.exceptions import RequestException
-from dotenv import load_dotenv
-from rich import print
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.live import Live
-from rich.layout import Layout
-from rich.text import Text
 from rich import box
 import threading
+import random
+from rich.logging import RichHandler
 
 # Create 'logs' folder if it doesn't exist
 log_directory = "logs"
@@ -29,14 +26,17 @@ timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 log_filename = os.path.join(log_directory, f"bot_debug_{timestamp}.log")
 
 # Set up logging configuration to output to a file with a timestamp
+log_format = "%(message)s"  # Basic log format without timestamp for pretty output
 logging.basicConfig(
     level=logging.DEBUG,  # Use DEBUG level to capture detailed logs
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=log_format,
     handlers=[
-        logging.StreamHandler(),  # Output logs to the console
+        RichHandler(rich_tracebacks=True),  # RichHandler for console logging with colors
         logging.FileHandler(log_filename)  # Save logs to a file in the 'logs' folder
     ]
 )
+
+# Logger with rich handling
 logger = logging.getLogger(__name__)
 console = Console()
 
@@ -50,16 +50,30 @@ class DMarketConfig:
     check_interval: int = 960
 
 class RateLimiter:
-    def __init__(self, requests_per_second: int):
+    def __init__(self, requests_per_second: int, max_retries: int = 5, backoff_factor: float = 2.0):
         self.requests_per_second = requests_per_second
         self.last_request_time = 0
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
 
     def wait_if_needed(self):
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
-        if time_since_last_request < 1/self.requests_per_second:
-            time.sleep(1/self.requests_per_second - time_since_last_request)
+
+        if time_since_last_request < 1 / self.requests_per_second:
+            sleep_time = 1 / self.requests_per_second - time_since_last_request
+            time.sleep(sleep_time)
+
         self.last_request_time = time.time()
+
+    def handle_rate_limit(self, retries: int = 0):
+        # Implement exponential backoff with random jitter
+        if retries >= self.max_retries:
+            raise RequestException("Maximum retries reached. Rate limit could not be overcome.")
+
+        sleep_time = (2 ** retries) + random.uniform(0, 1)  # Exponential backoff with jitter
+        logger.warning(f"Rate limit hit, backing off for {sleep_time:.2f} seconds.")
+        time.sleep(sleep_time)  # Wait before retrying
 
 class DMarketAPI:
     def __init__(self, config: DMarketConfig, bot_manager=None):
@@ -88,23 +102,31 @@ class DMarketAPI:
 
     def _make_request(self, method: str, path: str, body: Dict = None) -> Dict[Any, Any]:
         self.rate_limiter.wait_if_needed()
-        try:
-            headers = self._generate_headers(method, path, body)
-            url = f"{self.config.api_url}{path}"
+        retries = 0
+        while retries <= self.rate_limiter.max_retries:
+            try:
+                headers = self._generate_headers(method, path, body)
+                url = f"{self.config.api_url}{path}"
 
-            logger.debug(f"Making {method} request to {url} with headers: {headers} and body: {body}")
-            response = self.session.request(
-                method=method,
-                url=url,
-                headers=headers,
-                json=body
-            )
-            response.raise_for_status()
-            logger.debug(f"Received response: {response.status_code} - {response.text}")
-            return response.json()
-        except RequestException as e:
-            logger.error(f"Request failed: {e} - URL: {url}, Method: {method}, Body: {body}")
-            raise
+                logger.debug(f"Making {method} request to {url} with headers: {headers} and body: {body}")
+                response = self.session.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=body
+                )
+                response.raise_for_status()  # Raise an exception for HTTP error responses
+                logger.debug(f"Received response: {response.status_code} - {response.text}")
+                return response.json()
+
+            except RequestException as e:
+                if response.status_code == 429:  # Rate-limited (HTTP 429)
+                    self.rate_limiter.handle_rate_limit(retries)
+                    retries += 1
+                    continue
+                else:
+                    logger.error(f"Request failed: {e} - URL: {url}, Method: {method}, Body: {body}")
+                    raise
 
     def get_current_targets(self) -> Dict[str, Any]:
         logger.info("Fetching current active targets from the marketplace.")
@@ -204,25 +226,26 @@ class BotInstance:
                 current_price,
                 {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
             )
-            
+
             target_attrs = {a["Name"]: a["Value"] for a in current_target["Attributes"]}
             phase = target_attrs.get("phase", "")
             float_val = target_attrs.get("floatPartValue", "")
             seed = target_attrs.get("paintSeed", "")
-            
+
             if self.bot_manager:
                 max_price = self.bot_manager.get_max_price(
                     title, phase, float_val, seed
                 )
             else:
                 max_price = float('inf')
-                
-            if self.first_cycle_complete == True:
+
+            if self.first_cycle_complete:
                 self.api.delete_target(current_target["TargetID"])
-                
+                logger.info(f"Deleted target: {current_target['TargetID']}")
+
             self.console.print("[yellow]Fetching market prices...[/yellow]")
             market_prices = self.api.get_market_prices(title)
-            
+
             if not market_prices.get("orders"):
                 self.console.print(f"[red]No orders found for {title}[/red]")
                 return
@@ -250,36 +273,32 @@ class BotInstance:
                 self.console.print(f"[red]No matching orders found for {title} with specific attributes[/red]")
                 return
 
-            console.print("Found these relevant orders:")
-            console.print(relevant_orders)
             highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
             optimal_price = highest_price + 0.01
-                
+
             self.print_market_analysis(title, highest_price, optimal_price, current_price)
 
-            if abs(current_price - optimal_price) > 0:
-                if not self.first_cycle_complete:
-                    self.console.print("\n[yellow]First cycle - skipping update until next cycle[/yellow]")
-                else:
-                    # Check max price before updating
-                    max_price = self.bot_manager.get_max_price(title, phase, float_val, seed) if self.bot_manager else float('inf')
-                    if optimal_price > max_price:
-                        self.console.print(f"\n[red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price:.2f}[/red]")
-                        optimal_price = max_price
-                    self.console.print("\n[yellow]Price adjustment needed[/yellow]")
-                    self.print_action_result("Deleting old target", f"ID: {current_target['TargetID']}")
-                    self.api.delete_target(current_target["TargetID"])
-
+            if abs(current_price - optimal_price) >= 0:
+                if optimal_price > max_price:
+                    self.console.print(f"\n[red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price:.2f}[/red]")
+                    optimal_price = max_price
+                if self.first_cycle_complete:
                     self.print_action_result(
                         "Creating new target",
                         f"Price: ${optimal_price:.2f}, Attributes: {current_target['Attributes']}"
                     )
+                    # Adding delay before creating the new target to avoid hitting the rate limit
+                    self.console.print("[yellow]Waiting for a short delay before creating the new target...[/yellow]")
+                    time.sleep(1)  # Adjust delay if needed to avoid rate-limiting
+                    
                     self.api.create_target(
                         title=title,
                         amount=current_target["Amount"],
                         price=optimal_price,
                         attributes=current_target["Attributes"]
                     )
+                else:
+                    self.console.print(f"\n[red]SKIPPING PRICE UPDATE FOR THIS TARGET[/red]")
             else:
                 self.console.print("\n[green]Price is already optimal[/green]")
 
@@ -290,6 +309,7 @@ class BotInstance:
     def start(self):
         if not self.running:
             self.running = True
+            self.first_cycle_complete = False
             self.thread = threading.Thread(target=self.run)
             self.thread.start()
 
