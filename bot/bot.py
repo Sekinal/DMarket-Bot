@@ -20,7 +20,23 @@ from rich.text import Text
 from rich import box
 import threading
 
-logging.basicConfig(level=logging.INFO)
+# Create 'logs' folder if it doesn't exist
+log_directory = "logs"
+os.makedirs(log_directory, exist_ok=True)
+
+# Generate a log filename with a timestamp
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+log_filename = os.path.join(log_directory, f"bot_debug_{timestamp}.log")
+
+# Set up logging configuration to output to a file with a timestamp
+logging.basicConfig(
+    level=logging.DEBUG,  # Use DEBUG level to capture detailed logs
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # Output logs to the console
+        logging.FileHandler(log_filename)  # Save logs to a file in the 'logs' folder
+    ]
+)
 logger = logging.getLogger(__name__)
 console = Console()
 
@@ -75,6 +91,8 @@ class DMarketAPI:
         try:
             headers = self._generate_headers(method, path, body)
             url = f"{self.config.api_url}{path}"
+
+            logger.debug(f"Making {method} request to {url} with headers: {headers} and body: {body}")
             response = self.session.request(
                 method=method,
                 url=url,
@@ -82,18 +100,21 @@ class DMarketAPI:
                 json=body
             )
             response.raise_for_status()
+            logger.debug(f"Received response: {response.status_code} - {response.text}")
             return response.json()
         except RequestException as e:
-            logger.error(f"Request failed: {e}")
+            logger.error(f"Request failed: {e} - URL: {url}, Method: {method}, Body: {body}")
             raise
 
     def get_current_targets(self) -> Dict[str, Any]:
+        logger.info("Fetching current active targets from the marketplace.")
         return self._make_request(
             "GET",
             f"/marketplace-api/v1/user-targets?GameID={self.config.game_id}&BasicFilters.Status=TargetStatusActive"
         )
 
     def delete_target(self, target_id: str):
+        logger.info(f"Deleting target with ID: {target_id}")
         body = {"Targets": [{"TargetID": target_id}]}
         return self._make_request(
             "POST",
@@ -102,6 +123,7 @@ class DMarketAPI:
         )
 
     def create_target(self, title: str, amount: str, price: float, attributes: Dict = None):
+        logger.info(f"Creating target: {title} - Price: ${price}, Amount: {amount}, Attributes: {attributes}")
         body = {
             "GameID": self.config.game_id,
             "Targets": [{
@@ -128,9 +150,11 @@ class DMarketAPI:
             body
         )
         
+        logger.info(f"Target created successfully: {response}")
         return response
 
     def get_market_prices(self, title: str) -> Dict[str, Any]:
+        logger.info(f"Fetching market prices for {title}")
         return self._make_request(
             "GET",
             f"/marketplace-api/v1/targets-by-title/{self.config.game_id}/{title}"
@@ -260,6 +284,7 @@ class BotInstance:
                 self.console.print("\n[green]Price is already optimal[/green]")
 
         except Exception as e:
+            logger.error(f"Error updating target: {str(e)}", exc_info=True)
             self.console.print(f"[bold red]Error updating target:[/bold red] {str(e)}", style="red")
 
     def start(self):
@@ -295,8 +320,8 @@ class BotInstance:
                 if self.bot_manager:
                     self.bot_manager.update_available_items(items)
                 
-                self.console.print(f"\n[bold]Found {len(current_targets.get('Items', []))} active targets[/bold]")
-                
+                self.console.print(f"\n[bold]Found {len(current_targets.get('Items', []))} active targets[/bold]") 
+
                 for target in current_targets.get("Items", []):
                     self.console.rule(f"[bold blue]Processing Target: {target['Title']}[/bold blue]")
                     self.update_target(
@@ -315,6 +340,7 @@ class BotInstance:
                     break
 
             except Exception as e:
+                logger.error(f"Error in main loop: {str(e)}", exc_info=True)
                 self.console.print(f"[bold red]Error in main loop:[/bold red] {str(e)}", style="red")
                 self.shutdown_event.wait(timeout=self.config.check_interval)
                 if self.shutdown_event.is_set():
