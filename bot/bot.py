@@ -199,13 +199,14 @@ class BotInstance:
             f"[cyan]Title:[/cyan] {title}\n"
             f"[cyan]Current Price:[/cyan] ${current_price:.2f}\n"
             f"[cyan]Attributes:[/cyan] {attributes}",
-            title="[bold green]Target Information[/bold green]",
+            title=f"[bold green]{self.instance_id} - Target Information[/bold green]",
             border_style="green"
         )
         self.console.print(panel)
+        logger.info(f"[{self.instance_id}] Printed target info for {title} - Price: ${current_price:.2f}")
 
     def print_market_analysis(self, title: str, highest_price: float, optimal_price: float, current_price: float):
-        table = Table(title=f"[bold]Market Analysis for {title}[/bold]", box=box.ROUNDED)
+        table = Table(title=f"[bold]{self.instance_id} - Market Analysis for {title}[/bold]", box=box.ROUNDED)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green")
         
@@ -215,9 +216,15 @@ class BotInstance:
         table.add_row("Price Difference", f"${(optimal_price - current_price):.2f}")
         
         self.console.print(table)
+        logger.info(f"[{self.instance_id}] Market analysis for {title} - Optimal Price: ${optimal_price:.2f}")
+
+        
+        self.console.print(table)
 
     def print_action_result(self, action: str, details: str):
-        self.console.print(f"[bold blue]{action}:[/bold blue] [green]{details}[/green]")
+        self.console.print(f"[bold blue]{self.instance_id} - {action}:[/bold blue] [green]{details}[/green]")
+        logger.info(f"[{self.instance_id}] {action}: {details}")
+
 
     def update_target(self, title: str, current_price: float, current_target: Dict):
         try:
@@ -226,6 +233,9 @@ class BotInstance:
                 current_price,
                 {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
             )
+
+            self.console.print(f"[red][{self.instance_id}] Updating target for {title} - Current Price: ${current_price:.2f}[/red]")
+            logger.info(f"[{self.instance_id}] Updating target for {title} - Current Price: ${current_price:.2f}")
 
             target_attrs = {a["Name"]: a["Value"] for a in current_target["Attributes"]}
             phase = target_attrs.get("phase", "")
@@ -241,7 +251,8 @@ class BotInstance:
 
             if self.first_cycle_complete:
                 self.api.delete_target(current_target["TargetID"])
-                logger.info(f"Deleted target: {current_target['TargetID']}")
+                self.console.print(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
+                logger.info(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
 
             self.console.print("[yellow]Fetching market prices...[/yellow]")
             market_prices = self.api.get_market_prices(title)
@@ -255,7 +266,7 @@ class BotInstance:
                 attr["Name"]: attr["Value"]
                 for attr in current_target["Attributes"]
             }
-            with self.console.status("[bold green]Analyzing orders...") as status:
+            with self.console.status(f"[bold green]Analyzing orders for {self.instance_id}...") as status:
                 for order in market_prices["orders"]:
                     order_attributes = order["attributes"]
                     attributes_match = True
@@ -270,9 +281,8 @@ class BotInstance:
                         relevant_orders.append(order)
 
             if not relevant_orders:
-                self.console.print(f"[red]No relevant orders found for {title}[/red]")
-                # If no orders are found, recreate the target with the same price and attributes
-                self.console.print(f"[yellow]Recreating target: {title} with the same price and attributes...[/yellow]")
+                self.console.print(f"[red]No orders found for {title}[/red]")
+                self.console.print(f"[yellow]Recreating target for {self.instance_id}...[/yellow]")
                 self.api.create_target(
                     title=title,
                     amount=current_target["Amount"],
@@ -296,7 +306,7 @@ class BotInstance:
                         f"Price: ${optimal_price:.2f}, Attributes: {current_target['Attributes']}"
                     )
                     # Adding delay before creating the new target to avoid hitting the rate limit
-                    self.console.print("[yellow]Waiting for a short delay before creating the new target...[/yellow]")
+                    self.console.print(f"[yellow]Waiting before creating new target for {self.instance_id}...[/yellow]")
                     time.sleep(1)  # Adjust delay if needed to avoid rate-limiting
                     
                     self.api.create_target(
@@ -306,13 +316,14 @@ class BotInstance:
                         attributes=current_target["Attributes"]
                     )
                 else:
-                    self.console.print(f"\n[red]SKIPPING PRICE UPDATE FOR THIS TARGET[/red]")
+                    self.console.print(f"\n[red]SKIPPING PRICE UPDATE FOR {self.instance_id}[/red]")
             else:
                 self.console.print("\n[green]Price is already optimal[/green]")
 
         except Exception as e:
-            logger.error(f"Error updating target: {str(e)}", exc_info=True)
-            self.console.print(f"[bold red]Error updating target:[/bold red] {str(e)}", style="red")
+            logger.error(f"[{self.instance_id}] Error updating target: {str(e)}", exc_info=True)
+            self.console.print(f"[bold red]Error updating target for {self.instance_id}:[/bold red] {str(e)}", style="red")
+
 
     def start(self):
         if not self.running:
@@ -323,7 +334,6 @@ class BotInstance:
 
     def stop(self):
         self.running = False
-        self.first_cycle_complete = False
         self.shutdown_event.set()
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1)
