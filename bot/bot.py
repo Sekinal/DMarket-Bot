@@ -270,8 +270,16 @@ class BotInstance:
                         relevant_orders.append(order)
 
             if not relevant_orders:
-                self.console.print(f"[red]No matching orders found for {title} with specific attributes[/red]")
-                return
+                self.console.print(f"[red]No relevant orders found for {title}[/red]")
+                # If no orders are found, recreate the target with the same price and attributes
+                self.console.print(f"[yellow]Recreating target: {title} with the same price and attributes...[/yellow]")
+                self.api.create_target(
+                    title=title,
+                    amount=current_target["Amount"],
+                    price=current_price,
+                    attributes=current_target["Attributes"]
+                )
+                return 
 
             highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
             optimal_price = highest_price + 0.01
