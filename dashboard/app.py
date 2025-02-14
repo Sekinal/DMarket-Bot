@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bot.bot import BotManager, DMarketConfig
+from flask import send_file
+import json
+from zipfile import ZipFile
+
 
 # Load environment variables
 load_dotenv()
@@ -131,6 +135,73 @@ def modify_max_price(index):
         return jsonify({'success': True})
     except IndexError:
         return jsonify({'success': False, 'error': 'Index not found'}), 404
+
+@app.route('/api/export-config', methods=['GET'])
+@login_required
+def export_config():
+    try:
+        # Export both bots config and max prices config
+        with open(bot_manager.config_file, 'r') as f:
+            bots_config = f.read()
+
+        with open(bot_manager.max_prices_file, 'r') as f:
+            max_prices_config = f.read()
+
+        # Creating a zip file to contain both config files
+        from io import BytesIO
+        from zipfile import ZipFile
+
+        zip_buffer = BytesIO()
+        with ZipFile(zip_buffer, 'w') as zip_file:
+            zip_file.writestr('bots_config.json', bots_config)
+            zip_file.writestr('max_prices.json', max_prices_config)
+
+        zip_buffer.seek(0)
+
+        return send_file(zip_buffer, as_attachment=True, download_name='config_files.zip', mimetype='application/zip')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/import-config', methods=['POST'])
+@login_required
+def import_config():
+    try:
+        # Ensure the config directory exists
+        config_dir = 'config'
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+
+        # Get the uploaded file
+        uploaded_file = request.files['file']
+        if uploaded_file.filename.endswith('.zip'):
+            # Save the uploaded zip file in the config directory
+            zip_file_path = os.path.join(config_dir, uploaded_file.filename)
+            uploaded_file.save(zip_file_path)
+
+            # Unzip the file into the config directory
+            with ZipFile(zip_file_path, 'r') as zip_ref:
+                zip_ref.extractall(config_dir)
+
+            # Read and load the extracted files
+            with open(os.path.join(config_dir, 'bots_config.json'), 'r') as f:
+                bots_config = json.load(f)
+                bot_manager.bots.clear()  # Clear existing bots
+                bot_manager.load_configs()  # Reload from the uploaded config
+
+            with open(os.path.join(config_dir, 'max_prices.json'), 'r') as f:
+                max_prices_config = json.load(f)
+                bot_manager.max_prices = max_prices_config
+                bot_manager.save_max_prices()
+
+            # Cleanup: remove the uploaded zip file after extracting
+            os.remove(zip_file_path)
+
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Invalid file format, only .zip files are allowed'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run()

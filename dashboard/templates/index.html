@@ -206,7 +206,7 @@
                     </div>
                 </div>
             </div>
-
+            
             <div class="col-md-6 mb-4">
                 <div class="card">
                     <div class="card-body">
@@ -299,6 +299,35 @@
         </div>
     </div>
 
+    <div class="row mt-4">
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title mb-4"><i class="fas fa-download me-2"></i>Export Config</h3>
+                    <button class="btn btn-primary w-100" id="exportConfigButton">
+                        <i class="fas fa-download me-2"></i>Export Config
+                    </button>
+                </div>
+            </div>
+        </div>
+    
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title mb-4"><i class="fas fa-upload me-2"></i>Import Config</h3>
+                    <form id="importConfigForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <input type="file" class="form-control" id="importConfigFile" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-upload me-2"></i>Import Config
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <div class="row mt-4">
         <div class="col-12">
             <footer class="text-center text-muted">
@@ -681,6 +710,35 @@
             const floatOptions = generateFloatOptionsForItem(itemName);
             floatSelect.append(floatOptions);
         }
+
+        $(document).ready(function() {
+            // Export config
+            $('#exportConfigButton').click(function() {
+                window.location.href = '/api/export-config';
+            });
+
+            // Import config
+            $('#importConfigForm').submit(function(e) {
+                e.preventDefault();
+
+                var formData = new FormData();
+                formData.append('file', $('#importConfigFile')[0].files[0]);
+
+                $.ajax({
+                    url: '/api/import-config',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        Swal.fire('Success', 'Config imported successfully!', 'success');
+                    },
+                    error: function(error) {
+                        Swal.fire('Error', 'Error importing config: ' + error.responseJSON.error, 'error');
+                    }
+                });
+            });
+        });
     </script>
 </body>
 </html>
