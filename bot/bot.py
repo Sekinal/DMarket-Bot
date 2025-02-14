@@ -254,9 +254,24 @@ class BotInstance:
                 max_price = float('inf')
 
             if self.first_cycle_complete:
-                self.api.delete_target(current_target["TargetID"])
-                self.console.print(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
-                logger.info(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
+                retries = 0
+                while retries <= max_retries:
+                    try:
+                        # Attempt to delete the target with retries
+                        self.api.delete_target(current_target["TargetID"])
+                        self.console.print(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
+                        logger.info(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
+                        break  # Exit the retry loop if successful
+                    except Exception as e:
+                        retries += 1
+                        if retries > max_retries:
+                            self.console.print(f"[bold red]Failed to delete target after {max_retries} retries[/bold red]", style="red")
+                            logger.error(f"[{self.instance_id}] Failed to delete target after {max_retries} retries", exc_info=True)
+                            break
+                        else:
+                            backoff_time = (2 ** retries) + random.uniform(0, 1)
+                            self.console.print(f"[bold yellow]Retrying target deletion in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
+                            time.sleep(backoff_time)
 
             self.console.print("[yellow]Fetching market prices...[/yellow]")
             market_prices = self.api.get_market_prices(title)
