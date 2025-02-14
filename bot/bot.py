@@ -227,6 +227,10 @@ class BotInstance:
 
 
     def update_target(self, title: str, current_price: float, current_target: Dict):
+        retries = 0
+        max_retries = 5  # Maximum number of retries
+        backoff_factor = 2  # Exponential backoff factor
+        
         try:
             self.print_target_info(
                 title,
@@ -282,13 +286,29 @@ class BotInstance:
 
             if not relevant_orders:
                 self.console.print(f"[red]No orders found for {title}[/red]")
-                self.console.print(f"[yellow]Recreating target for {self.instance_id}...[/yellow]")
-                self.api.create_target(
-                    title=title,
-                    amount=current_target["Amount"],
-                    price=current_price,
-                    attributes=current_target["Attributes"]
-                )
+                
+                # Retry logic for recreating the target
+                retries = 0
+                while retries <= max_retries:
+                    try:
+                        self.console.print(f"[yellow]Recreating target for {self.instance_id}...[/yellow]")
+                        self.api.create_target(
+                            title=title,
+                            amount=current_target["Amount"],
+                            price=current_price,
+                            attributes=current_target["Attributes"]
+                        )
+                        break  # Exit the retry loop if successful
+                    except Exception as e:
+                        retries += 1
+                        if retries > max_retries:
+                            self.console.print(f"[bold red]Failed to recreate target after {max_retries} retries[/bold red]", style="red")
+                            logger.error(f"[{self.instance_id}] Failed to recreate target after {max_retries} retries", exc_info=True)
+                            break
+                        else:
+                            backoff_time = (2 ** retries) + random.uniform(0, 1)
+                            self.console.print(f"[bold yellow]Retrying target recreation in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
+                            time.sleep(backoff_time)
                 return 
 
             highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
@@ -309,12 +329,27 @@ class BotInstance:
                     self.console.print(f"[yellow]Waiting before creating new target for {self.instance_id}...[/yellow]")
                     time.sleep(1)  # Adjust delay if needed to avoid rate-limiting
                     
-                    self.api.create_target(
-                        title=title,
-                        amount=current_target["Amount"],
-                        price=optimal_price,
-                        attributes=current_target["Attributes"]
-                    )
+                    # Retry logic for creating the target
+                    retries = 0
+                    while retries <= max_retries:
+                        try:
+                            self.api.create_target(
+                                title=title,
+                                amount=current_target["Amount"],
+                                price=optimal_price,
+                                attributes=current_target["Attributes"]
+                            )
+                            break  # Exit the retry loop if successful
+                        except Exception as e:
+                            retries += 1
+                            if retries > max_retries:
+                                self.console.print(f"[bold red]Failed to create target after {max_retries} retries[/bold red]", style="red")
+                                logger.error(f"[{self.instance_id}] Failed to create target after {max_retries} retries", exc_info=True)
+                                break
+                            else:
+                                backoff_time = (2 ** retries) + random.uniform(0, 1)
+                                self.console.print(f"[bold yellow]Retrying target creation in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
+                                time.sleep(backoff_time)
                 else:
                     self.console.print(f"\n[red]SKIPPING PRICE UPDATE FOR {self.instance_id}[/red]")
             else:
