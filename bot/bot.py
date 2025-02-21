@@ -194,6 +194,65 @@ class BotInstance:
         self.first_cycle_complete = False
         self.shutdown_event = threading.Event()
 
+    def start(self):
+        if not self.running:
+            self.running = True
+            self.first_cycle_complete = False
+            self.thread = threading.Thread(target=self.run)
+            self.thread.start()
+
+    def stop(self):
+        self.running = False
+        self.shutdown_event.set()
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1)
+            
+    def run(self):
+        self.console.print(Panel.fit(
+            "[bold green]DMarket Bot Started[/bold green]\n"
+            f"[cyan]API URL:[/cyan] {self.config.api_url}\n"
+            f"[cyan]Game ID:[/cyan] {self.config.game_id}\n"
+            f"[cyan]Check Interval:[/cyan] {self.config.check_interval} seconds",
+            title="Bot Configuration",
+            border_style="blue"
+        ))
+
+        while self.running:
+            try:
+                with self.console.status("[bold green]Fetching current targets...") as status:
+                    current_targets = self.api.get_current_targets()
+
+                # Extract and report items to bot manager
+                items = [target["Title"] for target in current_targets.get("Items", [])]
+                if self.bot_manager:
+                    self.bot_manager.update_available_items(items)
+
+                self.console.print(f"\n[bold]Found {len(current_targets.get('Items', []))} active targets[/bold]")
+
+                for target in current_targets.get("Items", []):
+                    self.console.rule(f"[bold blue]Processing Target: {target['Title']}[/bold blue]")
+                    self.update_target(
+                        target["Title"],
+                        float(target["Price"]["Amount"]),
+                        target
+                    )
+
+                if not self.first_cycle_complete:
+                    self.first_cycle_complete = True
+                    self.console.print("\n[bold green]First cycle completed - full updates will start from next cycle[/bold green]")
+
+                self.console.print(f"\n[yellow]Waiting {self.config.check_interval} seconds before next update...[/yellow]")
+                self.shutdown_event.wait(timeout=self.config.check_interval)
+                if self.shutdown_event.is_set():
+                    break
+
+            except Exception as e:
+                logger.error(f"Error in main loop: {str(e)}", exc_info=True)
+                self.console.print(f"[bold red]Error in main loop:[/bold red] {str(e)}", style="red")
+                self.shutdown_event.wait(timeout=self.config.check_interval)
+                if self.shutdown_event.is_set():
+                    break
+                
     def print_target_info(self, title: str, current_price: float, attributes: Dict):
         panel = Panel(
             f"[cyan]Title:[/cyan] {title}\n"
@@ -373,66 +432,6 @@ class BotInstance:
         except Exception as e:
             logger.error(f"[{self.instance_id}] Error updating target: {str(e)}", exc_info=True)
             self.console.print(f"[bold red]Error updating target for {self.instance_id}:[/bold red] {str(e)}", style="red")
-
-
-    def start(self):
-        if not self.running:
-            self.running = True
-            self.first_cycle_complete = False
-            self.thread = threading.Thread(target=self.run)
-            self.thread.start()
-
-    def stop(self):
-        self.running = False
-        self.shutdown_event.set()
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=1)
-            
-    def run(self):
-        self.console.print(Panel.fit(
-            "[bold green]DMarket Bot Started[/bold green]\n"
-            f"[cyan]API URL:[/cyan] {self.config.api_url}\n"
-            f"[cyan]Game ID:[/cyan] {self.config.game_id}\n"
-            f"[cyan]Check Interval:[/cyan] {self.config.check_interval} seconds",
-            title="Bot Configuration",
-            border_style="blue"
-        ))
-
-        while self.running:
-            try:
-                with self.console.status("[bold green]Fetching current targets...") as status:
-                    current_targets = self.api.get_current_targets()
-                
-                # Extract and report items to bot manager
-                items = [target["Title"] for target in current_targets.get("Items", [])]
-                if self.bot_manager:
-                    self.bot_manager.update_available_items(items)
-                
-                self.console.print(f"\n[bold]Found {len(current_targets.get('Items', []))} active targets[/bold]") 
-
-                for target in current_targets.get("Items", []):
-                    self.console.rule(f"[bold blue]Processing Target: {target['Title']}[/bold blue]")
-                    self.update_target(
-                        target["Title"],
-                        float(target["Price"]["Amount"]),
-                        target
-                    )
-
-                if not self.first_cycle_complete:
-                    self.first_cycle_complete = True
-                    self.console.print("\n[bold green]First cycle completed - full updates will start from next cycle[/bold green]")
-
-                self.console.print(f"\n[yellow]Waiting {self.config.check_interval} seconds before next update...[/yellow]")
-                self.shutdown_event.wait(timeout=self.config.check_interval)
-                if self.shutdown_event.is_set():
-                    break
-
-            except Exception as e:
-                logger.error(f"Error in main loop: {str(e)}", exc_info=True)
-                self.console.print(f"[bold red]Error in main loop:[/bold red] {str(e)}", style="red")
-                self.shutdown_event.wait(timeout=self.config.check_interval)
-                if self.shutdown_event.is_set():
-                    break
 
 class BotManager:
     def __init__(self):
