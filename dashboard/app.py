@@ -203,5 +203,34 @@ def import_config():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/export-logs', methods=['GET'])
+@login_required
+def export_logs():
+    try:
+        log_files = []
+        # Gather all log files in the 'logs' directory
+        for filename in os.listdir('logs'):
+            if filename.endswith('.log'):
+                log_files.append(os.path.join('logs', filename))
+        
+        if not log_files:
+            return jsonify({'error': 'No log files found'}), 404
+
+        # Create a zip buffer
+        from io import BytesIO
+        from zipfile import ZipFile
+        
+        zip_buffer = BytesIO()
+        with ZipFile(zip_buffer, 'w') as zip_file:
+            for log_file in log_files:
+                zip_file.write(log_file, os.path.basename(log_file))  # Add logs to zip
+
+        zip_buffer.seek(0)  # Go to the beginning of the BytesIO buffer
+
+        return send_file(zip_buffer, as_attachment=True, download_name='logs.zip', mimetype='application/zip')
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run()
