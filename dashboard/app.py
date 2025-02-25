@@ -105,7 +105,8 @@ def update_max_price():
         phase=data.get('phase', ''),
         float_val=data.get('float', ''),
         seed=data.get('seed', ''),
-        max_price=float(data['max_price'])
+        max_price=float(data['max_price']),
+        min_price=float(data['min_price'])  # New field for minimum update price
     )
     return jsonify({'success': True})
 
@@ -129,7 +130,8 @@ def modify_max_price(index):
             'phase': data.get('phase', ''),
             'float': data.get('float', ''),
             'seed': data.get('seed', ''),
-            'price': float(data['max_price'])
+            'max_price': float(data['max_price']),
+            'min_price': float(data['min_price'])
         }
         bot_manager.save_max_prices()
         return jsonify({'success': True})

@@ -271,8 +271,12 @@
                                 <input type="number" step="0.01" class="form-control" id="maxPrice" 
                                        placeholder="Max Price" required>
                             </div>
+                            <div class="mb-3">
+                                <input type="number" step="0.01" class="form-control" id="minPrice" 
+                                       placeholder="Minimum Update Price" required>
+                            </div>
                             <button type="submit" class="btn btn-primary w-100">
-                                <i class="fas fa-save me-2"></i>Set Max Price
+                                <i class="fas fa-save me-2"></i>Set Price Limits
                             </button>
                         </form>
                     </div>
@@ -436,6 +440,7 @@
                 const floatVal = $('#floatSelect').val();
                 const seed = $('#seedInput').val();
                 const price = $('#maxPrice').val();
+                const minPrice = $('#minPrice').val();
 
                 $.ajax({
                     url: '/api/max-prices',
@@ -446,7 +451,8 @@
                         phase: phase,
                         float: floatVal,
                         seed: seed,
-                        max_price: price
+                        max_price: maxPrice,
+                        min_price: minPrice
                     }),
                     success: function() {
                         updateMaxPrices();
@@ -565,13 +571,14 @@
                 const phase = btn.data('phase');
                 const float = btn.data('float');
                 const seed = btn.data('seed');
-                const price = btn.data('price');
+                const maxPrice = btn.data('price');
+                const minPrice = btn.data('min-price'); // new attribute for min price
 
                 // Create float options based on item wear
                 const floatOptions = generateFloatOptionsForItem(item);
 
                 Swal.fire({
-                    title: 'Edit Max Price',
+                    title: 'Edit Price Range',
                     html: `
                         <select id="swal-item" class="swal2-input">
                             ${$('#itemSelect').html()}
@@ -584,16 +591,15 @@
                             ${floatOptions}
                         </select>
                         <input id="swal-seed" class="swal2-input" placeholder="Paint Seed" value="${seed}">
-                        <input id="swal-price" class="swal2-input" type="number" step="0.01" placeholder="Max Price" value="${price}">
+                        <input id="swal-max-price" class="swal2-input" type="number" step="0.01" placeholder="Max Price" value="${maxPrice}">
+                        <input id="swal-min-price" class="swal2-input" type="number" step="0.01" placeholder="Min Price" value="${minPrice}">
                     `,
                     focusConfirm: false,
                     didOpen: () => {
-                        // Set initial values
+                        // Set initial values for select elements
                         $('#swal-item').val(item);
                         $('#swal-phase').val(phase);
                         $('#swal-float').val(float);
-
-                        // Add change handler for item selection
                         $('#swal-item').on('change', function() {
                             const selectedItem = $(this).val();
                             const newFloatOptions = generateFloatOptionsForItem(selectedItem);
@@ -606,7 +612,8 @@
                             phase: $('#swal-phase').val(),
                             float: $('#swal-float').val(),
                             seed: $('#swal-seed').val(),
-                            max_price: $('#swal-price').val()
+                            max_price: parseFloat($('#swal-max-price').val()),
+                            min_price: parseFloat($('#swal-min-price').val())
                         }
                     }
                 }).then((result) => {
@@ -618,49 +625,53 @@
                             data: JSON.stringify(result.value),
                             success: function() {
                                 updateMaxPrices();
-                                Swal.fire('Updated!', 'Max price has been updated.', 'success');
+                                Swal.fire('Updated!', 'Price range has been updated.', 'success');
                             }
                         });
                     }
                 });
             });
-        
-        function updateMaxPrices() {
-            $.get('/api/max-prices', function(data) {
-                const maxPricesList = $('#maxPricesList');
-                maxPricesList.empty();
-                data.max_prices.forEach((entry, index) => {
-                    const attrs = [];
-                    if (entry.phase) attrs.push(`Phase: ${entry.phase}`);
-                    if (entry.float) attrs.push(`Float: ${entry.float}`);
-                    if (entry.seed) attrs.push(`Seed: ${entry.seed}`);
-                    maxPricesList.append(`
-                        <div class="max-price-item" data-index="${index}">
-                            <div>
-                                <div class="fw-bold">${entry.item}</div>
-                                <div class="text-muted">${attrs.join(' | ') || 'Any attributes'}</div>
-                                <div class="text-success">$${entry.price.toFixed(2)}</div>
+
+            function updateMaxPrices() {
+                $.get('/api/max-prices', function(data) {
+                    const maxPricesList = $('#maxPricesList');
+                    maxPricesList.empty();
+                    data.max_prices.forEach((entry, index) => {
+                        const attrs = [];
+                        if (entry.phase) attrs.push(`Phase: ${entry.phase}`);
+                        if (entry.float) attrs.push(`Float: ${entry.float}`);
+                        if (entry.seed) attrs.push(`Seed: ${entry.seed}`);
+                        maxPricesList.append(`
+                            <div class="max-price-item" data-index="${index}">
+                                <div>
+                                    <div class="fw-bold">${entry.item}</div>
+                                    <div class="text-muted">${attrs.join(' | ') || 'Any attributes'}</div>
+                                    <div class="text-success">
+                                        Max: $${entry.max_price.toFixed(2)}, Min: $${entry.min_price.toFixed(2)}
+                                    </div>
+                                </div>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-primary edit-max-price" 
+                                            data-index="${index}"
+                                            data-item="${entry.item}"
+                                            data-phase="${entry.phase}"
+                                            data-float="${entry.float}"
+                                            data-seed="${entry.seed}"
+                                            data-price="${entry.max_price}"
+                                            data-min-price="${entry.min_price}">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger delete-max-price" 
+                                            data-index="${index}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="btn-group">
-                                <button class="btn btn-sm btn-primary edit-max-price" 
-                                        data-index="${index}"
-                                        data-item="${entry.item}"
-                                        data-phase="${entry.phase}"
-                                        data-float="${entry.float}"
-                                        data-seed="${entry.seed}"
-                                        data-price="${entry.price}">
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <button class="btn btn-sm btn-danger delete-max-price" 
-                                        data-index="${index}">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `);
+                        `);
+                    });
                 });
-            });
-        }
+            }
+
 
         function generateFloatOptionsForItem(itemName) {
             let allowedFloats = [];

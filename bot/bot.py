@@ -264,21 +264,20 @@ class BotInstance:
         self.console.print(panel)
         logger.info(f"[{self.instance_id}] Printed target info for {title} - Price: ${current_price:.2f}")
 
-    def print_market_analysis(self, title: str, highest_price: float, optimal_price: float, current_price: float):
+    def print_market_analysis(self, title: str, highest_price: float, optimal_price: float, current_price: float, min_price: float, max_price: float):
         table = Table(title=f"[bold]{self.instance_id} - Market Analysis for {title}[/bold]", box=box.ROUNDED)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green")
-        
+
         table.add_row("Current Price", f"${current_price:.2f}")
         table.add_row("Highest Competitor", f"${highest_price:.2f}")
         table.add_row("Optimal Price", f"${optimal_price:.2f}")
         table.add_row("Price Difference", f"${(optimal_price - current_price):.2f}")
-        
+        table.add_row("Minimum Allowed Price", f"${min_price:.2f}")
+        table.add_row("Maximum Allowed Price", f"${max_price:.2f}")
+
         self.console.print(table)
         logger.info(f"[{self.instance_id}] Market analysis for {title} - Optimal Price: ${optimal_price:.2f}")
-
-        
-        self.console.print(table)
 
     def print_action_result(self, action: str, details: str):
         self.console.print(f"[bold blue]{self.instance_id} - {action}:[/bold blue] [green]{details}[/green]")
@@ -388,9 +387,14 @@ class BotInstance:
             highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
             optimal_price = highest_price + 0.01
 
-            self.print_market_analysis(title, highest_price, optimal_price, current_price)
+            min_price = self.bot_manager.get_min_price(title, phase, float_val, seed)
+            if optimal_price < min_price:
+                self.console.print(f"[yellow]Optimal price ${optimal_price:.2f} is below the minimum update price ${min_price:.2f}. Adjusting to minimum update price.[/yellow]")
+                optimal_price = min_price
+                
+            self.print_market_analysis(title, highest_price, optimal_price, current_price, min_price, max_price)
 
-            if abs(current_price - optimal_price) >= 0:
+            if current_price != optimal_price:
                 if optimal_price > max_price:
                     self.console.print(f"\n[red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price:.2f}[/red]")
                     optimal_price = max_price
@@ -466,7 +470,7 @@ class BotManager:
         with open(self.max_prices_file, 'w') as f:
             json.dump(self.max_prices, f, indent=4)
 
-    def update_max_price(self, item_name: str, phase: str, float_val: str, seed: str, max_price: float):
+    def update_max_price(self, item_name: str, phase: str, float_val: str, seed: str, max_price: float, min_price: float):
         # Remove existing entry if exists
         self.max_prices = [entry for entry in self.max_prices if not (
             entry['item'] == item_name and
@@ -480,7 +484,8 @@ class BotManager:
             'phase': phase,
             'float': float_val,
             'seed': seed,
-            'price': max_price
+            'max_price': max_price,
+            'min_price': min_price
         })
         self.save_max_prices()
 
@@ -498,13 +503,29 @@ class BotManager:
                 match = False
             if match:
                 matching.append(entry)
-        
         if not matching:
             return float('inf')
-        
-        # Find most specific entry (most attributes specified)
         best_entry = max(matching, key=lambda x: sum(1 for k in ['phase', 'float', 'seed'] if x.get(k, '')))
-        return best_entry['price']
+        return best_entry.get('max_price', float('inf'))
+
+    def get_min_price(self, item_name: str, phase: str, float_val: str, seed: str) -> float:
+        matching = []
+        for entry in self.max_prices:
+            if entry['item'] != item_name:
+                continue
+            match = True
+            if entry.get('phase', '') and entry['phase'] != phase:
+                match = False
+            if entry.get('float', '') and entry['float'] != float_val:
+                match = False
+            if entry.get('seed', '') and entry['seed'] != seed:
+                match = False
+            if match:
+                matching.append(entry)
+        if not matching:
+            return 0.0  # Default minimum price if not set
+        best_entry = max(matching, key=lambda x: sum(1 for k in ['phase', 'float', 'seed'] if x.get(k, '')))
+        return best_entry.get('min_price', 0.0)
 
     def update_available_items(self, items: list):
         self.available_items = set(items)
