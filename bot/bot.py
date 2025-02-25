@@ -198,6 +198,7 @@ class BotInstance:
         if not self.running:
             self.running = True
             self.first_cycle_complete = False
+            self.shutdown_event.clear()
             self.thread = threading.Thread(target=self.run)
             self.thread.start()
 
