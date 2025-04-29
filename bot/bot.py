@@ -344,19 +344,19 @@ class BotInstance:
                 attr["Name"]: attr["Value"]
                 for attr in current_target["Attributes"]
             }
-            with self.console.status(f"[bold green]Analyzing orders for {self.instance_id}...") as status:
-                for order in market_prices["orders"]:
-                    order_attributes = order["attributes"]
-                    attributes_match = True
-                    if (target_attributes.get("floatPartValue", "any") != order_attributes.get("floatPartValue", "any")
-                        and order_attributes.get("floatPartValue", "any") != "any"):
-                        attributes_match = False
-                    if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
-                        attributes_match = False
-                    if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
-                        attributes_match = False
-                    if attributes_match:
-                        relevant_orders.append(order)
+            
+            for order in market_prices["orders"]:
+                order_attributes = order["attributes"]
+                attributes_match = True
+                if (target_attributes.get("floatPartValue", "any") != order_attributes.get("floatPartValue", "any")
+                    and order_attributes.get("floatPartValue", "any") != "any"):
+                    attributes_match = False
+                if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
+                    attributes_match = False
+                if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
+                    attributes_match = False
+                if attributes_match:
+                    relevant_orders.append(order)
 
             if not relevant_orders:
                 self.console.print(f"[red]No orders found for {title}[/red]")
