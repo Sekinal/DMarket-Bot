@@ -286,157 +286,242 @@ class BotInstance:
 
 
     def update_target(self, title: str, current_price: float, current_target: Dict):
-        retries = 0
-        max_retries = 5  # Maximum number of retries
-        backoff_factor = 2  # Exponential backoff factor
-        
+        """
+        Updates a specific target by checking market prices, deleting the old target (if applicable),
+        and creating a new one at the optimal price, respecting configured or default min/max limits.
+        """
+        max_retries = 5  # Maximum number of retries for API calls
+        backoff_factor = 2  # Base for exponential backoff
+
         try:
+            # --- 1. Log Initial Information & Extract Attributes ---
             self.print_target_info(
                 title,
                 current_price,
-                {attr["Name"]: attr["Value"] for attr in current_target["Attributes"]}
+                {attr["Name"]: attr["Value"] for attr in current_target.get("Attributes", [])}
             )
+            self.console.print(f"[cyan][{self.instance_id}] Starting update for '{title}' - Current Price: ${current_price:.2f}[/cyan]")
+            logger.info(f"[{self.instance_id}] Starting update for '{title}' - Current Price: ${current_price:.2f}, TargetID: {current_target.get('TargetID', 'N/A')}")
 
-            self.console.print(f"[red][{self.instance_id}] Updating target for {title} - Current Price: ${current_price:.2f}[/red]")
-            logger.info(f"[{self.instance_id}] Updating target for {title} - Current Price: ${current_price:.2f}")
-
-            target_attrs = {a["Name"]: a["Value"] for a in current_target["Attributes"]}
+            target_attrs = {a["Name"]: a["Value"] for a in current_target.get("Attributes", [])}
             phase = target_attrs.get("phase", "")
             float_val = target_attrs.get("floatPartValue", "")
             seed = target_attrs.get("paintSeed", "")
 
-            if self.bot_manager:
-                max_price = self.bot_manager.get_max_price(
-                    title, phase, float_val, seed
-                )
-            else:
-                max_price = float('inf')
+            # --- 2. Determine Min/Max Price Constraints ---
+            max_price_config = self.bot_manager.get_max_price(title, phase, float_val, seed)
+            min_price_config = self.bot_manager.get_min_price(title, phase, float_val, seed)
 
-            if self.first_cycle_complete:
+            max_price_to_use = max_price_config
+            min_price_to_use = min_price_config
+
+            if max_price_config == float('inf'):
+                # No specific max price found in config, calculate and set a default
+                calculated_default_max = round(current_price * 1.5, 2)
+                default_min_price_for_new = 0.0 # Use 0.0 as the default minimum
+
+                # Save this default rule for future runs
+                added_default = self.bot_manager.ensure_price_entry_exists(
+                    title, phase, float_val, seed, calculated_default_max, default_min_price_for_new
+                )
+
+                if added_default:
+                    log_msg = f"[{self.instance_id}] No config found for '{title}' (Attrs: phase='{phase}', float='{float_val}', seed='{seed}'). Setting default max price: ${calculated_default_max:.2f}, default min price: ${default_min_price_for_new:.2f}"
+                    self.console.print(f"[yellow]{log_msg}[/yellow]")
+                    logger.info(log_msg)
+
+                # Use the calculated defaults for *this* update cycle
+                max_price_to_use = calculated_default_max
+                min_price_to_use = default_min_price_for_new
+            # else: Config found, max_price_to_use and min_price_to_use are already set correctly
+
+
+            # --- 3. Delete Old Target (if not first cycle) ---
+            target_id_to_delete = current_target.get("TargetID")
+            deletion_successful = True # Assume success unless deletion is attempted and fails
+
+            if self.first_cycle_complete and target_id_to_delete:
+                self.console.print(f"[{self.instance_id}] [yellow]Attempting to delete existing target: {target_id_to_delete}[/yellow]")
                 retries = 0
+                deletion_successful = False # Reset flag as we are attempting deletion now
                 while retries <= max_retries:
                     try:
-                        # Attempt to delete the target with retries
-                        self.api.delete_target(current_target["TargetID"])
-                        self.console.print(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
-                        logger.info(f"[{self.instance_id}] Deleted target: {current_target['TargetID']}")
-                        break  # Exit the retry loop if successful
+                        self.api.delete_target(target_id_to_delete)
+                        self.console.print(f"[{self.instance_id}] [green]Successfully deleted target: {target_id_to_delete}[/green]")
+                        logger.info(f"[{self.instance_id}] Deleted target: {target_id_to_delete}")
+                        deletion_successful = True
+                        break # Exit retry loop on success
                     except Exception as e:
                         retries += 1
+                        error_msg = f"Error deleting target {target_id_to_delete}: {e}"
+                        logger.warning(f"[{self.instance_id}] {error_msg} (Attempt {retries}/{max_retries})")
                         if retries > max_retries:
-                            self.console.print(f"[bold red]Failed to delete target after {max_retries} retries[/bold red]", style="red")
-                            logger.error(f"[{self.instance_id}] Failed to delete target after {max_retries} retries", exc_info=True)
-                            break
+                            self.console.print(f"[bold red][{self.instance_id}] Failed to delete target {target_id_to_delete} after {max_retries} retries: {e}[/bold red]", style="red")
+                            logger.error(f"[{self.instance_id}] Failed to delete target {target_id_to_delete} after {max_retries} retries.", exc_info=True)
+                            # If deletion fails critically, we might not want to proceed
+                            # or handle it differently (e.g., skip creating a new one to avoid duplicates)
+                            # For now, we'll let it continue but log the failure.
+                            break # Exit loop after max retries
                         else:
-                            backoff_time = (2 ** retries) + random.uniform(0, 1)
-                            self.console.print(f"[bold yellow]Retrying target deletion in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
+                            backoff_time = (backoff_factor ** retries) + random.uniform(0, 1)
+                            self.console.print(f"[bold yellow][{self.instance_id}] Retrying target deletion for {target_id_to_delete} in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
                             time.sleep(backoff_time)
+            elif not target_id_to_delete:
+                 logger.warning(f"[{self.instance_id}] Cannot delete target for '{title}' as TargetID is missing in current_target data.")
+                 deletion_successful = False # Cannot proceed reliably without deleting
 
-            self.console.print("[yellow]Fetching market prices...[/yellow]")
-            market_prices = self.api.get_market_prices(title)
 
-            if not market_prices.get("orders"):
-                self.console.print(f"[red]No orders found for {title}[/red]")
+            # --- 4. Fetch Market Prices ---
+            self.console.print(f"[{self.instance_id}] [blue]Fetching market prices for '{title}'...[/blue]")
+            try:
+                market_prices = self.api.get_market_prices(title)
+            except Exception as e:
+                logger.error(f"[{self.instance_id}] Failed to fetch market prices for '{title}': {e}", exc_info=True)
+                self.console.print(f"[bold red][{self.instance_id}] Error fetching market prices for {title}: {e}[/bold red]", style="red")
+                # Decide recovery strategy: maybe recreate at old price if deletion happened?
+                # For now, we log and exit the update for this item.
                 return
 
-            relevant_orders = []
-            target_attributes = {
-                attr["Name"]: attr["Value"]
-                for attr in current_target["Attributes"]
-            }
-            
-            for order in market_prices["orders"]:
-                order_attributes = order["attributes"]
-                attributes_match = True
-                if (target_attributes.get("floatPartValue", "any") != order_attributes.get("floatPartValue", "any")
-                    and order_attributes.get("floatPartValue", "any") != "any"):
-                    attributes_match = False
-                if target_attributes.get("paintSeed", "any") != order_attributes.get("paintSeed", "any"):
-                    attributes_match = False
-                if target_attributes.get("phase", "any") != order_attributes.get("phase", "any"):
-                    attributes_match = False
-                if attributes_match:
-                    relevant_orders.append(order)
+            # --- 5. Analyze Market and Determine Optimal Price ---
+            if not market_prices.get("orders"):
+                self.console.print(f"[{self.instance_id}] [red]No market orders found for '{title}'.[/red]")
+                logger.warning(f"[{self.instance_id}] No market orders found for '{title}'.")
+                optimal_price = current_price # Fallback to current price if no market data
+                highest_price = current_price # For analysis printout
+                relevant_orders_found = False
+            else:
+                relevant_orders = []
+                for order in market_prices["orders"]:
+                    order_attributes = order.get("attributes", {})
+                    attributes_match = True
 
-            if not relevant_orders:
-                self.console.print(f"[red]No orders found for {title}[/red]")
-                
-                # Retry logic for recreating the target
+                    # Check phase only if target has a specific phase
+                    if phase and phase != order_attributes.get("phase"):
+                        attributes_match = False
+                    # Check float only if target has a specific float
+                    if float_val and float_val != order_attributes.get("floatPartValue"):
+                         attributes_match = False
+                    # Check seed only if target has a specific seed
+                    if seed and seed != order_attributes.get("paintSeed"):
+                         attributes_match = False
+
+                    if attributes_match:
+                        relevant_orders.append(order)
+
+                if not relevant_orders:
+                    self.console.print(f"[{self.instance_id}] [red]No relevant orders found for '{title}' with matching attributes.[/red]")
+                    logger.warning(f"[{self.instance_id}] No relevant orders found for '{title}' with matching attributes (Phase: '{phase}', Float: '{float_val}', Seed: '{seed}').")
+                    optimal_price = current_price # Fallback to current price
+                    highest_price = current_price # For analysis printout
+                    relevant_orders_found = False
+                else:
+                    relevant_orders_found = True
+                    # Calculate optimal price based on relevant orders
+                    try:
+                        highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
+                        optimal_price = round(highest_price + 0.01, 2)
+                    except (ValueError, KeyError) as e:
+                         logger.error(f"[{self.instance_id}] Error processing relevant order prices for '{title}': {e}. Orders: {relevant_orders}", exc_info=True)
+                         self.console.print(f"[bold red][{self.instance_id}] Error processing market order data for '{title}'.[/bold red]", style="red")
+                         optimal_price = current_price # Fallback
+                         highest_price = current_price # Fallback
+
+            # Apply min price constraint
+            if optimal_price < min_price_to_use:
+                self.console.print(f"[{self.instance_id}] [yellow]Optimal price ${optimal_price:.2f} is below minimum ${min_price_to_use:.2f}. Adjusting to minimum.[/yellow]")
+                logger.info(f"[{self.instance_id}] Adjusting optimal price for '{title}' from ${optimal_price:.2f} to minimum ${min_price_to_use:.2f}.")
+                optimal_price = min_price_to_use
+
+            # Apply max price constraint (important check AFTER min adjustment)
+            if optimal_price > max_price_to_use:
+                self.console.print(f"[{self.instance_id}] [red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price_to_use:.2f}. Adjusting to max price.[/red]")
+                logger.info(f"[{self.instance_id}] Adjusting optimal price for '{title}' from ${optimal_price:.2f} to maximum ${max_price_to_use:.2f}.")
+                optimal_price = max_price_to_use
+
+            # Print market analysis using the determined constraints for this run
+            self.print_market_analysis(title, highest_price, optimal_price, current_price, min_price_to_use, max_price_to_use)
+
+            # --- 6. Create New Target (or Recreate Original if Necessary) ---
+            should_create_new_target = False
+            price_for_creation = optimal_price
+
+            if not self.first_cycle_complete:
+                self.console.print(f"[{self.instance_id}] [magenta]First cycle: Skipping price update logic. Will ensure target exists at original price.[/magenta]")
+                logger.info(f"[{self.instance_id}] First cycle for '{title}'. Skipping optimal price update.")
+                # If deletion didn't happen (because it's the first cycle), we don't strictly *need* to recreate.
+                # However, to be safe and ensure the target is listed, we can force a recreation check/attempt.
+                # For simplicity in this version, we'll rely on the next cycle to fully update if needed.
+                # If the target *was* deleted somehow before the first cycle check (unlikely), this logic might need adjusting.
+                # Let's assume the target still exists if deletion was skipped. No creation needed here.
+                should_create_new_target = False # Explicitly don't create based on optimal price yet
+
+            elif not deletion_successful and target_id_to_delete:
+                 self.console.print(f"[bold red][{self.instance_id}] Skipping target creation for '{title}' because previous target deletion failed.[/bold red]", style="red")
+                 logger.error(f"[{self.instance_id}] Skipped target creation for '{title}' due to failed deletion of {target_id_to_delete}.")
+                 should_create_new_target = False
+
+            elif current_price == optimal_price:
+                self.console.print(f"[{self.instance_id}] [green]Price ${current_price:.2f} is already optimal. Recreating target.[/green]")
+                logger.info(f"[{self.instance_id}] Price for '{title}' is already optimal (${current_price:.2f}). Recreating target.")
+                should_create_new_target = True # Recreate even if optimal, because old one was deleted
+                price_for_creation = current_price # Use the existing price
+
+            else: # Price is different and deletion was successful (or skipped on first cycle)
+                self.console.print(f"[{self.instance_id}] [green]Price changed. Creating new target at optimal price: ${optimal_price:.2f}[/green]")
+                logger.info(f"[{self.instance_id}] Price for '{title}' changed from ${current_price:.2f} to ${optimal_price:.2f}. Creating new target.")
+                should_create_new_target = True
+                price_for_creation = optimal_price
+
+            # Perform the creation if decided
+            if should_create_new_target:
+                self.print_action_result(
+                    "Preparing to create target",
+                    f"Item: '{title}', Price: ${price_for_creation:.2f}, Attributes: {current_target.get('Attributes', [])}"
+                )
+
+                # Add a small delay before creating, especially after deletion
+                creation_delay = random.uniform(1.0, 2.5) # Random delay between 1 and 2.5 seconds
+                self.console.print(f"[{self.instance_id}] [yellow]Waiting {creation_delay:.2f}s before creating target...[/yellow]")
+                time.sleep(creation_delay)
+
                 retries = 0
+                creation_successful = False
                 while retries <= max_retries:
                     try:
-                        self.console.print(f"[yellow]Recreating target for {self.instance_id}...[/yellow]")
-                        self.api.create_target(
+                        response = self.api.create_target(
                             title=title,
-                            amount=current_target["Amount"],
-                            price=current_price,
-                            attributes=current_target["Attributes"]
+                            amount=current_target.get("Amount", "1"), # Default to 1 if amount missing
+                            price=price_for_creation,
+                            attributes=current_target.get("Attributes", [])
                         )
-                        break  # Exit the retry loop if successful
+                        # Optional: Check response content if needed
+                        log_msg = f"Successfully created target for '{title}' at ${price_for_creation:.2f}. Response: {response}"
+                        self.console.print(f"[{self.instance_id}] [green]Successfully created target.[/green]")
+                        logger.info(f"[{self.instance_id}] {log_msg}")
+                        creation_successful = True
+                        break # Exit retry loop on success
                     except Exception as e:
                         retries += 1
+                        error_msg = f"Error creating target for '{title}' at ${price_for_creation:.2f}: {e}"
+                        logger.warning(f"[{self.instance_id}] {error_msg} (Attempt {retries}/{max_retries})")
                         if retries > max_retries:
-                            self.console.print(f"[bold red]Failed to recreate target after {max_retries} retries[/bold red]", style="red")
-                            logger.error(f"[{self.instance_id}] Failed to recreate target after {max_retries} retries", exc_info=True)
-                            break
+                            self.console.print(f"[bold red][{self.instance_id}] Failed to create target for '{title}' after {max_retries} retries: {e}[/bold red]", style="red")
+                            logger.error(f"[{self.instance_id}] Failed to create target for '{title}' after {max_retries} retries.", exc_info=True)
+                            break # Exit loop after max retries
                         else:
-                            backoff_time = (2 ** retries) + random.uniform(0, 1)
-                            self.console.print(f"[bold yellow]Retrying target recreation in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
+                            backoff_time = (backoff_factor ** retries) + random.uniform(0, 1)
+                            self.console.print(f"[bold yellow][{self.instance_id}] Retrying target creation for '{title}' in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
                             time.sleep(backoff_time)
-                return 
 
-            highest_price = max(float(order["price"]) / 100 for order in relevant_orders)
-            optimal_price = highest_price + 0.01
-
-            min_price = self.bot_manager.get_min_price(title, phase, float_val, seed)
-            if optimal_price < min_price:
-                self.console.print(f"[yellow]Optimal price ${optimal_price:.2f} is below the minimum update price ${min_price:.2f}. Adjusting to minimum update price.[/yellow]")
-                optimal_price = min_price
-                
-            self.print_market_analysis(title, highest_price, optimal_price, current_price, min_price, max_price)
-
-            if current_price != optimal_price:
-                if optimal_price > max_price:
-                    self.console.print(f"\n[red]Optimal price ${optimal_price:.2f} exceeds max price ${max_price:.2f}[/red]")
-                    optimal_price = max_price
-                if self.first_cycle_complete:
-                    self.print_action_result(
-                        "Creating new target",
-                        f"Price: ${optimal_price:.2f}, Attributes: {current_target['Attributes']}"
-                    )
-                    # Adding delay before creating the new target to avoid hitting the rate limit
-                    self.console.print(f"[yellow]Waiting before creating new target for {self.instance_id}...[/yellow]")
-                    time.sleep(1)  # Adjust delay if needed to avoid rate-limiting
-                    
-                    # Retry logic for creating the target
-                    retries = 0
-                    while retries <= max_retries:
-                        try:
-                            self.api.create_target(
-                                title=title,
-                                amount=current_target["Amount"],
-                                price=optimal_price,
-                                attributes=current_target["Attributes"]
-                            )
-                            break  # Exit the retry loop if successful
-                        except Exception as e:
-                            retries += 1
-                            if retries > max_retries:
-                                self.console.print(f"[bold red]Failed to create target after {max_retries} retries[/bold red]", style="red")
-                                logger.error(f"[{self.instance_id}] Failed to create target after {max_retries} retries", exc_info=True)
-                                break
-                            else:
-                                backoff_time = (2 ** retries) + random.uniform(0, 1)
-                                self.console.print(f"[bold yellow]Retrying target creation in {backoff_time:.2f} seconds...[/bold yellow]", style="yellow")
-                                time.sleep(backoff_time)
-                else:
-                    self.console.print(f"\n[red]SKIPPING PRICE UPDATE FOR {self.instance_id}[/red]")
-            else:
-                self.console.print("\n[green]Price is already optimal[/green]")
 
         except Exception as e:
-            logger.error(f"[{self.instance_id}] Error updating target: {str(e)}", exc_info=True)
-            self.console.print(f"[bold red]Error updating target for {self.instance_id}:[/bold red] {str(e)}", style="red")
+            # Catch-all for any unexpected errors during the process
+            logger.error(f"[{self.instance_id}] Unexpected error in update_target for '{title}': {str(e)}", exc_info=True)
+            self.console.print(f"[bold red][{self.instance_id}] Unexpected error updating target '{title}':[/bold red] {str(e)}", style="red")
+
+        finally:
+            # Optional: Add any cleanup or final logging here if needed
+            logger.debug(f"[{self.instance_id}] Finished update cycle for '{title}'.")
 
 class BotManager:
     def __init__(self):
@@ -509,12 +594,44 @@ class BotManager:
         best_entry = max(matching, key=lambda x: sum(1 for k in ['phase', 'float', 'seed'] if x.get(k, '')))
         return best_entry.get('max_price', float('inf'))
 
-    def get_min_price(self, item_name: str, phase: str, float_val: str, seed: str) -> float:
+    def ensure_price_entry_exists(self, item_name: str, phase: str, float_val: str, seed: str, default_max_price: float, default_min_price: float = 0.0):
+        """
+        Checks if an exact price entry exists. If not, adds a new one with default values.
+        Returns True if a new entry was added, False otherwise.
+        """
+        # Check if an EXACT entry already exists
+        for entry in self.max_prices:
+            if (entry['item'] == item_name and
+                entry.get('phase', '') == phase and
+                entry.get('float', '') == float_val and
+                entry.get('seed', '') == seed):
+                return False # Exact entry already exists, do nothing
+
+        # No exact entry found, add the new default entry
+        self.max_prices.append({
+            'item': item_name,
+            'phase': phase,
+            'float': float_val,
+            'seed': seed,
+            'max_price': default_max_price,
+            'min_price': default_min_price  # Use the provided default min price
+        })
+        self.save_max_prices()
+        logger.info(f"Added default price entry for '{item_name}' ({phase}, {float_val}, {seed}): Max=${default_max_price:.2f}, Min=${default_min_price:.2f}")
+        return True
+
+    # Modify get_max_price and get_min_price slightly for clarity if needed,
+    # but their core logic of finding the best match remains the same.
+    # The default float('inf') for max and 0.0 for min are still correct signals
+    # for when no rule is found.
+
+    def get_max_price(self, item_name: str, phase: str, float_val: str, seed: str) -> float:
         matching = []
         for entry in self.max_prices:
             if entry['item'] != item_name:
                 continue
             match = True
+            # Only consider entries where attributes match IF the entry specifies that attribute
             if entry.get('phase', '') and entry['phase'] != phase:
                 match = False
             if entry.get('float', '') and entry['float'] != float_val:
@@ -523,10 +640,38 @@ class BotManager:
                 match = False
             if match:
                 matching.append(entry)
+
         if not matching:
-            return 0.0  # Default minimum price if not set
+            # CRITICAL: Return float('inf') to signal that no configuration was found.
+            return float('inf')
+
+        # Find the most specific matching rule
         best_entry = max(matching, key=lambda x: sum(1 for k in ['phase', 'float', 'seed'] if x.get(k, '')))
-        return best_entry.get('min_price', 0.0)
+        return best_entry.get('max_price', float('inf')) # Default to 'inf' if key missing, though unlikely
+
+    def get_min_price(self, item_name: str, phase: str, float_val: str, seed: str) -> float:
+        matching = []
+        for entry in self.max_prices:
+            if entry['item'] != item_name:
+                continue
+            match = True
+            # Only consider entries where attributes match IF the entry specifies that attribute
+            if entry.get('phase', '') and entry['phase'] != phase:
+                match = False
+            if entry.get('float', '') and entry['float'] != float_val:
+                match = False
+            if entry.get('seed', '') and entry['seed'] != seed:
+                match = False
+            if match:
+                matching.append(entry)
+
+        if not matching:
+             # CRITICAL: Return 0.0 to signal that no configuration was found (a safe default min)
+            return 0.0
+
+        # Find the most specific matching rule
+        best_entry = max(matching, key=lambda x: sum(1 for k in ['phase', 'float', 'seed'] if x.get(k, '')))
+        return best_entry.get('min_price', 0.0) # Default to 0.0 if key missing
 
     def update_available_items(self, items: list):
         self.available_items = set(items)
